@@ -1,0 +1,14 @@
+{
+    "domain": "nbelocalconnect",
+    "name": "NBE Local Connect",
+    "requirements": ["pycryptodome"],
+    "codeowners": [
+        "@Spit68"
+    ],
+    "config_flow": true,
+    "documentation": "https://github.com/Spit68/NBElocalconnect/blob/master/README.md",
+    "issue_tracker": "https://github.com/Spit68/NBElocalconnect/issues",
+    "iot_class": "local_polling",
+    "integration_type": "device",
+    "version": "0.2.0"
+}

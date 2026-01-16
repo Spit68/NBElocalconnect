@@ -1,0 +1,14 @@
+{
+    "config": {
+      "step": {
+        "user": {
+          "description": "Enter the same Serial/password. You can find the credentials on the boiler controller.",
+          "data": {
+            "serial": "Seriel no:",
+            "password": "Password:",
+            "ip_address": "Controller IP (leave empty for auto discovery)" 
+          }
+        }
+      }
+    }
+}

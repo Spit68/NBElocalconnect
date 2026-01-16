@@ -1,0 +1,32 @@
+# NBELocalConnect Services
+
+set_setting:
+  name: Set Setting
+  description: Set a value on the boiler using either entity_id or key path
+  fields:
+    entity_id:
+      name: Entity ID
+      description: The sensor entity to update (only writable settings)
+      required: false
+      example: "sensor.nbe_boiler_boiler_temp"
+      selector:
+        entity:
+          domain: sensor
+          integration: nbelocalconnect
+    key:
+      name: Key Path
+      description: The settings key path (e.g., "settings/boiler/boiler_temp"). Not needed if entity_id is provided.
+      required: false
+      example: "settings/boiler/boiler_temp"
+      selector:
+        text:
+    value:
+      name: Value
+      description: The value to set
+      required: true
+      example: 75
+      selector:
+        number:
+          min: 0
+          max: 1000
+          step: 0.1
