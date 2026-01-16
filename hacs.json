@@ -1,0 +1,10 @@
+{
+    "name": "NBE Local Connect",
+    "domains": [
+        "sensor",
+        "binary_sensor",
+        "button"
+    ],
+    "render_readme": true,
+    "homeassistant": "2026.1.0"
+}
