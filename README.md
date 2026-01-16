@@ -94,7 +94,7 @@ data:
 - **Stop Boiler**: Stops boiler operation  
 - **Reset Alarm**: Resets active alarms
 
-![Button Controls](buttons/buttons.png)
+![Button Controls](add_integration/buttons.png)
 
 **Lovelace Card Example:**
 ```yaml
