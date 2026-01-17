@@ -125,7 +125,6 @@ async def async_setup_entry(hass, entry, async_add_entities):
     
     # Keys der allerede er lavet sensorer for
     skip_keys = {
-        'operating_data/power_pct',
         'operating_data/off_on_alarm',
         'operating_data/boiler_pump_state',
         'operating_data/dhw_valve_state',
@@ -141,6 +140,12 @@ async def async_setup_entry(hass, entry, async_add_entities):
         'consumption_data/dhw_years',
     }
     
+    # Blacklist: Skip disse fra advanced_data (duplikerer operating_data)
+    advanced_data_blacklist = {
+        'advanced_data/boiler_power_kw',      # Duplikerer operating_data/power_kw
+        'advanced_data/boiler_power_actual',  # Duplikerer operating_data/power_pct
+    }
+    
     # ========================================================================
     # DYNAMISK SCANNING - FIND ALLE KEYS
     # ========================================================================
@@ -153,6 +158,11 @@ async def async_setup_entry(hass, entry, async_add_entities):
     for key in all_keys:
         # Skip allerede håndterede
         if key in skip_keys:
+            continue
+        
+        # Skip blacklistede advanced_data duplikater
+        if key in advanced_data_blacklist:
+            _LOGGER.debug(f"Skipping advanced_data duplicate: {key}")
             continue
         
         # Skip binære timer data
