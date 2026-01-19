@@ -122,7 +122,42 @@ cards:
       action: toggle
 ```
 
-## Usage Example
+### Usage Example Consumption History for 31 days
+
+![Consumption History](add_integration/31_days_graf.png)
+```yaml
+type: custom:apexcharts-card
+header:
+  show: true
+  title: Forbrug - Sidste 31 dage
+graph_span: 31d
+series:
+  - entity: sensor.nbe_consumption_daily
+    type: column
+    name: kg
+    data_generator: |
+      const values = entity.attributes.values;
+      if (!values || values.length < 31) return [];
+
+      const result = [];
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      for (let i = 0; i < 31; i++) {
+        const date = new Date(today);
+        date.setDate(today.getDate() - i);
+        result.push([date.getTime(), parseFloat(values[i])]);
+      }
+
+      return result;
+yaxis:
+  - min: 0
+    decimals: 1
+apex_config:
+  tooltip:
+    x:
+      format: dd MMMM yyyy
+```	  
 
 ### Automation Example
 ```yaml
