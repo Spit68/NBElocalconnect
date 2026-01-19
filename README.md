@@ -122,7 +122,7 @@ cards:
       action: toggle
 ```
 
-### Example Consumption History for 31 days
+### Consumption History for 31 days
 
 ![Consumption History](add_integration/31_days_graf.png)
 
