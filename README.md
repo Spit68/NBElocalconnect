@@ -122,9 +122,11 @@ cards:
       action: toggle
 ```
 
-### Usage Example Consumption History for 31 days
+### Example Consumption History for 31 days
 
 ![Consumption History](add_integration/31_days_graf.png)
+
+**Lovelace Card Example (with apexchart)**
 ```yaml
 type: custom:apexcharts-card
 header:
