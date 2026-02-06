@@ -192,3 +192,7 @@ GPL-2.0 License - See LICENSE file for details
 ---
 
 **Note**: This integration communicates directly with your boiler controller using the local network. No data is sent to external cloud services.
+
+a test
+![Button Controls](add_integration/buttons.png)
+![Consumption History](add_integration/31_days_graf.png)
