@@ -26,7 +26,7 @@ class NbeConnectConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if not errors:
                 # Configuration is valid, create the entry
                 # Use IP address or serial for unique_id
-                unique_id = user_input.get("ip_address") or user_input.get("serial") or "nbe_boiler"
+                unique_id = user_input.get("serial") or user_input.get("ip_address") or "nbe_boiler"
                 await self.async_set_unique_id(unique_id)
                 self._abort_if_unique_id_configured()
                 
@@ -41,10 +41,9 @@ class NbeConnectConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             {
                 vol.Required(
                     "serial", 
-                    default="",
                     description={
                         "label": "Boiler Serial Number", 
-                        "hint": "Enter serial number if you have multiple boilers. Leave empty for auto-discovery."
+                        "hint": "Enter serial number."
                     }
                 ): TextSelector(
                     TextSelectorConfig(type=TextSelectorType.TEXT, autocomplete="serial")
@@ -117,10 +116,10 @@ class NbeConnectOptionsFlowHandler(config_entries.OptionsFlow):
             {
                 vol.Required(
                     "serial",
-                    default=current_data.get("serial", ""),
+                    default=current_data.get("serial"),
                     description={
                         "label": "Boiler Serial Number", 
-                        "hint": "Enter serial number if you have multiple boilers. Leave empty for auto-discovery."
+                        "hint": "Enter the serial number from your boiler label."
                     }
                 ): TextSelector(
                     TextSelectorConfig(type=TextSelectorType.TEXT, autocomplete="serial")

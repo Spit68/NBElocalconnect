@@ -1,5 +1,6 @@
 """NBELocalConnect - Dynamisk sensor platform."""
 from homeassistant.helpers.entity import Entity
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -33,7 +34,7 @@ def get_sensor_config(key):
     if any(x in key_lower for x in ['pellet', 'dose', 'trip', 'consumption', 'capacity']) and not 'auger_capacity' in key_lower:
         return "kg", SensorDeviceClass.WEIGHT, SensorStateClass.MEASUREMENT
    
-    # Power actual/pct (%) - TILFØJ DENNE!
+    # Power actual/pct (%)
     if '_power_actual' in key_lower or '_power_pct' in key_lower:
         return "%", None, SensorStateClass.MEASUREMENT
     
@@ -94,33 +95,32 @@ async def async_setup_entry(hass, entry, async_add_entities):
     
     coordinator = hass.data[DOMAIN][entry.entry_id+'_coordinator']
     
+    # Tilføj entry_id til unique_id
+    entry_id = entry.entry_id
+    
     sensors = []
     
-    # ========================================================================
-    # MANUELLE BINARY SENSORS (specielle)
-    # ========================================================================
+    # BINARY SENSORS
     sensors.extend([
-        RTBBinarySensor(coordinator, 'Boiler Running', 'operating_data/power_pct', 'v2_boiler_running', BinarySensorDeviceClass.HEAT),
-        RTBBinarySensor(coordinator, 'Boiler Alarm', 'operating_data/off_on_alarm', 'v2_boiler_alarm', BinarySensorDeviceClass.PROBLEM),
-        RTBBinarySensor(coordinator, 'Boiler Pump', 'operating_data/boiler_pump_state', 'v2_boiler_pump', BinarySensorDeviceClass.RUNNING),
-        RTBBinarySensor(coordinator, 'DHW Valve', 'operating_data/dhw_valve_state', 'v2_dhw_valve', BinarySensorDeviceClass.OPENING),
-        RTBBinarySensor(coordinator, 'House Pump', 'operating_data/house_pump_state', 'v2_house_pump', BinarySensorDeviceClass.RUNNING),
-        RTBBinarySensor(coordinator, 'Sun Pump', 'operating_data/sun_pump_state', 'v2_sun_pump', BinarySensorDeviceClass.RUNNING),
+        RTBBinarySensor(coordinator, 'Boiler Running', 'operating_data/power_pct', f'{entry_id}_v2_boiler_running', BinarySensorDeviceClass.HEAT),
+        RTBBinarySensor(coordinator, 'Boiler Alarm', 'operating_data/off_on_alarm', f'{entry_id}_v2_boiler_alarm', BinarySensorDeviceClass.PROBLEM),
+        RTBBinarySensor(coordinator, 'Boiler Pump', 'operating_data/boiler_pump_state', f'{entry_id}_v2_boiler_pump', BinarySensorDeviceClass.RUNNING),
+        RTBBinarySensor(coordinator, 'DHW Valve', 'operating_data/dhw_valve_state', f'{entry_id}_v2_dhw_valve', BinarySensorDeviceClass.OPENING),
+        RTBBinarySensor(coordinator, 'House Pump', 'operating_data/house_pump_state', f'{entry_id}_v2_house_pump', BinarySensorDeviceClass.RUNNING),
+        RTBBinarySensor(coordinator, 'Sun Pump', 'operating_data/sun_pump_state', f'{entry_id}_v2_sun_pump', BinarySensorDeviceClass.RUNNING),
     ])
     
-    # ========================================================================
-    # CONSUMPTION HISTORY SENSORS (specielle - med sorting)
-    # ========================================================================
+    # CONSUMPTION HISTORY SENSORS
     sensors.extend([
-        RTBConsumptionHistorySensor(coordinator, 'Consumption Hourly', 'consumption_data/total_hours', 'v2_consumption_hourly', 24),
-        RTBConsumptionHistorySensor(coordinator, 'Consumption Daily', 'consumption_data/total_days', 'v2_consumption_daily', 31),
-        RTBConsumptionHistorySensor(coordinator, 'Consumption Monthly', 'consumption_data/total_months', 'v2_consumption_monthly', 12),
-        RTBConsumptionHistorySensor(coordinator, 'Consumption Yearly', 'consumption_data/total_years', 'v2_consumption_yearly', 12),
+        RTBConsumptionHistorySensor(coordinator, 'Consumption Hourly', 'consumption_data/total_hours', f'{entry_id}_v2_consumption_hourly', 24),
+        RTBConsumptionHistorySensor(coordinator, 'Consumption Daily', 'consumption_data/total_days', f'{entry_id}_v2_consumption_daily', 31),
+        RTBConsumptionHistorySensor(coordinator, 'Consumption Monthly', 'consumption_data/total_months', f'{entry_id}_v2_consumption_monthly', 12),
+        RTBConsumptionHistorySensor(coordinator, 'Consumption Yearly', 'consumption_data/total_years', f'{entry_id}_v2_consumption_yearly', 12),
         
-        RTBConsumptionHistorySensor(coordinator, 'DHW Consumption Hourly', 'consumption_data/dhw_hours', 'v2_dhw_hourly', 24),
-        RTBConsumptionHistorySensor(coordinator, 'DHW Consumption Daily', 'consumption_data/dhw_days', 'v2_dhw_daily', 31),
-        RTBConsumptionHistorySensor(coordinator, 'DHW Consumption Monthly', 'consumption_data/dhw_months', 'v2_dhw_monthly', 12),
-        RTBConsumptionHistorySensor(coordinator, 'DHW Consumption Yearly', 'consumption_data/dhw_years', 'v2_dhw_yearly', 12),
+        RTBConsumptionHistorySensor(coordinator, 'DHW Consumption Hourly', 'consumption_data/dhw_hours', f'{entry_id}_v2_dhw_hourly', 24),
+        RTBConsumptionHistorySensor(coordinator, 'DHW Consumption Daily', 'consumption_data/dhw_days', f'{entry_id}_v2_dhw_daily', 31),
+        RTBConsumptionHistorySensor(coordinator, 'DHW Consumption Monthly', 'consumption_data/dhw_months', f'{entry_id}_v2_dhw_monthly', 12),
+        RTBConsumptionHistorySensor(coordinator, 'DHW Consumption Yearly', 'consumption_data/dhw_years', f'{entry_id}_v2_dhw_yearly', 12),
     ])
     
     # Keys der allerede er lavet sensorer for
@@ -199,7 +199,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
         unit, device_class, state_class = get_sensor_config(key)
         
         # Lav unique ID med prefix for at undgå kollision med gamle sensorer
-        uid = f"v2_{key.replace('/', '_')}"
+        uid = f"{coordinator.entry_id}_v2_{key.replace('/', '_')}"
         
         # Opret sensor
         sensor = RTBDynamicSensor(
@@ -239,7 +239,8 @@ class RTBDynamicSensor(CoordinatorEntity, SensorEntity):
     
     @property
     def name(self):
-        return f"NBE {self.sensorname}"
+        serial = self.coordinator.proxy.serial
+        return f"NBE {serial} {self.sensorname}"
     
     @property
     def unique_id(self):
@@ -279,6 +280,79 @@ class RTBDynamicSensor(CoordinatorEntity, SensorEntity):
             "datapoint_path": self.client_key,
             "writable": is_writable,
         }
+        
+    @property
+    def device_info(self):
+        """Return device info."""
+        return {
+            "identifiers": {(DOMAIN, self.coordinator.entry_id)},
+        }        
+
+    @property
+    def entity_category(self):
+        """Return entity category."""
+        # Vigtige settings skal IKKE have category (så de kan være enabled)
+        important_settings = [
+            'settings/boiler/temp',
+            'settings/boiler/diff_over',
+            'settings/boiler/diff_under',
+            'settings/hopper/content',
+            'settings/hopper/min_content',
+            'settings/hot_water/temp',
+            'settings/auger/kw_max',
+            'settings/auger/kw_min',
+            'settings/fan/speed_10',
+            'settings/fan/speed_50',
+            'settings/fan/speed_100',
+        ]
+        if self.client_key in important_settings:
+            return None  # Ingen category = kan være enabled
+        
+        # Advanced data → DIAGNOSTIC
+        if self.client_key.startswith('advanced_data/'):
+            return EntityCategory.DIAGNOSTIC
+        
+        # Andre settings → CONFIG (disabled)
+        elif self.client_key.startswith('settings/'):
+            return EntityCategory.CONFIG
+        
+        return None
+
+    @property
+    def entity_registry_enabled_default(self):
+        """Return if entity should be enabled by default."""
+        if 'dhw' in self.client_key.lower():
+            return False
+        
+        if 'sun' in self.client_key.lower():
+            return False
+    
+        if self.client_key.endswith('/NA') or '/na' in self.client_key.lower():
+            return False
+    
+        if self.client_key.startswith('operating_data/'):
+            return True
+    
+        if self.client_key.startswith('consumption_data/'):
+            return True
+
+        important_settings = [
+            'settings/boiler/temp',
+            'settings/boiler/diff_over',
+            'settings/boiler/diff_under',
+            'settings/hopper/content',
+            'settings/hopper/min_content',
+            'settings/hot_water/temp',
+            'settings/auger/kw_max',
+            'settings/auger/kw_min',
+            'settings/fan/speed_10',
+            'settings/fan/speed_50',
+            'settings/fan/speed_100',
+]
+        if self.client_key in important_settings:
+            return True
+    
+        return False
 
 class RTBBinarySensor(CoordinatorEntity, BinarySensorEntity):
     """Binary sensor."""
@@ -292,7 +366,8 @@ class RTBBinarySensor(CoordinatorEntity, BinarySensorEntity):
     
     @property
     def name(self):
-        return f"NBE {self.sensorname}"
+        serial = self.coordinator.proxy.serial
+        return f"NBE {serial} {self.sensorname}"
     
     @property
     def unique_id(self):
@@ -328,6 +403,23 @@ class RTBBinarySensor(CoordinatorEntity, BinarySensorEntity):
             "writable": False,
         }
 
+    @property
+    def device_info(self):
+        """Return device info."""
+        return {
+            "identifiers": {(DOMAIN, self.coordinator.entry_id)},
+        }     
+
+    @property
+    def entity_category(self):
+        return None    
+
+    @property
+    def entity_registry_enabled_default(self):
+        if 'dhw' in self.client_key.lower() or 'sun' in self.client_key.lower():
+            return False
+        return True     
+
 class RTBConsumptionHistorySensor(CoordinatorEntity, SensorEntity):
     """Consumption history sensor med sorting."""
     
@@ -340,7 +432,8 @@ class RTBConsumptionHistorySensor(CoordinatorEntity, SensorEntity):
     
     @property
     def name(self):
-        return f"NBE {self.sensorname}"
+        serial = self.coordinator.proxy.serial
+        return f"NBE {serial} {self.sensorname}"
     
     @property
     def unique_id(self):
@@ -389,6 +482,13 @@ class RTBConsumptionHistorySensor(CoordinatorEntity, SensorEntity):
             "max": round(max(values), 2) if values else 0,
             "min": round(min(values), 2) if values else 0,
         }
+        
+    @property
+    def device_info(self):
+        """Return device info."""
+        return {
+            "identifiers": {(DOMAIN, self.coordinator.entry_id)},
+        }        
     
     def _parse_consumption_data(self, data_string):
         """Parse og sorter consumption data."""
@@ -430,3 +530,13 @@ class RTBConsumptionHistorySensor(CoordinatorEntity, SensorEntity):
         except (ValueError, IndexError) as e:
             _LOGGER.error(f"Error parsing {self.client_key}: {e}")
             return []
+
+    @property
+    def entity_category(self):
+        return None    
+
+    @property
+    def entity_registry_enabled_default(self):
+        if 'dhw' in self.client_key.lower():
+            return False
+        return True  
