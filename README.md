@@ -96,6 +96,7 @@ data:
 
 ![Button Controls](add_integration/buttons.png)
 
+where xxxxx er your boiler serial
 **Lovelace Card Example:**
 ```yaml
 type: horizontal-stack
@@ -103,19 +104,19 @@ cards:
   - show_name: true
     show_icon: true
     type: button
-    entity: button.start_boiler
+    entity: button.nbe_xxxxx_start_boiler
     name: Start
     icon: mdi:fire
     tap_action:
       action: toggle
   - type: button
-    entity: button.stop_boiler
+    entity: button.nbe_xxxxx_stop_boiler
     name: Stop
     icon: mdi:fire-off
     tap_action:
       action: toggle
   - type: button
-    entity: button.reset_boiler_alarm
+    entity: button.nbe_xxxxx_reset_boiler_alarm
     name: Alarm Reset
     icon: mdi:bell-off
     tap_action:
@@ -126,6 +127,7 @@ cards:
 
 ![Consumption History](add_integration/31_days_graf.png)
 
+Where xxxxx is your boiler serial number
 **Lovelace Card Example (with apexchart)**
 ```yaml
 type: custom:apexcharts-card
@@ -134,7 +136,7 @@ header:
   title: Forbrug - Sidste 31 dage
 graph_span: 31d
 series:
-  - entity: sensor.nbe_consumption_daily
+  - entity: sensor.nbe_xxxxx_consumption_daily
     type: column
     name: kg
     data_generator: |
@@ -161,6 +163,7 @@ apex_config:
       format: dd MMMM yyyy
 ```	  
 
+where xxxxx is your boiler seiral number
 ### Automation Example
 ```yaml
 automation:
@@ -172,7 +175,7 @@ automation:
     action:
       - service: button.press
         target:
-          entity_id: button.start_boiler
+          entity_id: button.nbe_xxxxx_start_boiler
 ```
 
 ## Support
