@@ -3,6 +3,7 @@ from homeassistant.const import CONF_PASSWORD, CONF_SCAN_INTERVAL
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import device_registry as dr
 from .const import DOMAIN
 from .rtbdata import RTBData
 from .protocol import Proxy
@@ -42,6 +43,21 @@ async def async_setup_entry(hass, entry):
     except Exception as e:
         logger.error(f"❌ Failed to create proxy connection: {e}", exc_info=True)
         return False
+    
+    # Opret device
+    device_registry = dr.async_get(hass)
+    
+    # Brug serial hvis tilgængelig, ellers IP
+    device_identifier = proxy.serial if hasattr(proxy, 'serial') and proxy.serial else ip_address
+    device_name = f"NBE Boiler {device_identifier}"
+    
+    device_registry.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, entry.entry_id)},
+        name=device_name,
+        manufacturer="NBE",
+        model="Pellet Boiler",
+    )    
     
     # Opret coordinator
     coordinator = RTBDataCoordinator(
