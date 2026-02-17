@@ -84,10 +84,11 @@ Change boiler settings from Home Assistant.
 ```yaml
 action: nbelocalconnect.set_setting
 data:
-  entity_id: sensor.nbe_hopper_content
+  entity_id: sensor.nbe_xxxxx_hopper_content
   value: 120
 ```
 *This will set the hopper content to 120 kg.*
+xxxxx is your boiler serial number
 
 ### Button Controls
 - **Start Boiler**: Starts boiler operation
@@ -97,6 +98,7 @@ data:
 ![Button Controls](add_integration/buttons.png)
 
 where xxxxx er your boiler serial
+
 **Lovelace Card Example:**
 ```yaml
 type: horizontal-stack
@@ -128,6 +130,7 @@ cards:
 ![Consumption History](add_integration/31_days_graf.png)
 
 Where xxxxx is your boiler serial number
+
 **Lovelace Card Example (with apexchart)**
 ```yaml
 type: custom:apexcharts-card
@@ -164,6 +167,7 @@ apex_config:
 ```	  
 
 where xxxxx is your boiler seiral number
+
 ### Automation Example
 ```yaml
 automation:
