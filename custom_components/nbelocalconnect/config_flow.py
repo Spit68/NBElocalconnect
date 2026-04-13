@@ -12,7 +12,7 @@ from homeassistant.helpers.selector import (
 class NbeConnectConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Config flow for NBELocalConnect custom integration."""
 
-    VERSION = 1
+    VERSION = 2
 
     async def async_step_user(self, user_input=None):
         """Handle the initial step when setting up the integration."""

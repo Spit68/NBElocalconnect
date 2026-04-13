@@ -10,8 +10,7 @@ class RTBData:
     def __init__(self, data):
         """Initialize with data list."""
         self.data = {}
-        if data:
-            self.set(data)
+        self.set(data)
     
     def set(self, data):
         """Update data dictionary from list of key=value strings."""

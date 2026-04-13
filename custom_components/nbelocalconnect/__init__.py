@@ -19,7 +19,22 @@ async def async_setup(hass: HomeAssistant, config: dict):
 async def async_setup_entry(hass, entry):
     """Set up NBE from a config entry."""
     logger.info("Setting up NBELocalConnect integration...")
-    
+
+    # Ryd op i orphaned entities fra tidligere installationer.
+    # HA's entity registry overlever HACS-sletning, så gamle poster kan hænge.
+    from homeassistant.helpers import entity_registry as er
+    ent_reg = er.async_get(hass)
+    active_entry_ids = {e.entry_id for e in hass.config_entries.async_entries(DOMAIN)}
+    orphaned = [
+        e for e in ent_reg.entities.values()
+        if e.platform == DOMAIN and e.config_entry_id not in active_entry_ids
+    ]
+    for orphan in orphaned:
+        ent_reg.async_remove(orphan.entity_id)
+        logger.info(f"Removed orphaned entity: {orphan.entity_id} (uid: {orphan.unique_id})")
+    if orphaned:
+        logger.info(f"Cleaned up {len(orphaned)} orphaned entities from previous installs")
+
     # Hent konfiguration
     ip_address = entry.data.get('ip_address')
     password = entry.data.get(CONF_PASSWORD)
@@ -141,6 +156,7 @@ class RTBDataCoordinator(DataUpdateCoordinator):
         self.entry_id = entry_id
         self.proxy = proxy
         self.rtbdata = RTBData([])
+        self.info_message = 0
         
         update_interval = datetime.timedelta(seconds=scan_interval)
         super().__init__(hass, logger, name=DOMAIN, update_interval=update_interval)
@@ -243,6 +259,26 @@ class RTBDataCoordinator(DataUpdateCoordinator):
             # Gem alt data
             self.rtbdata.set(all_data)
             logger.info(f"✅ Successfully fetched {len(all_data)} total data points!")
+
+            # ================================================================
+            # 5. INFO MESSAGE
+            # ================================================================
+            logger.debug("Fetching info/...")
+            try:
+                data = await self.hass.async_add_executor_job(
+                    self.proxy.get, 'info/'
+                )
+                if data:
+                    # Returnerer liste som ['13'] eller ['0']
+                    raw = data[0].strip() if data else '0'
+                    try:
+                        self.info_message = int(raw)
+                    except (ValueError, TypeError):
+                        self.info_message = 0
+                    logger.debug(f"  ✓ Info message: {self.info_message}")
+            except Exception as e:
+                logger.debug(f"  ✗ Error fetching info: {e}")
+                self.info_message = 0
             
             return all_data
         

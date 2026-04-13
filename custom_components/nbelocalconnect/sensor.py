@@ -31,7 +31,7 @@ def get_sensor_config(key):
         # Special: content skal ganges med 10
         return "kg", SensorDeviceClass.WEIGHT, SensorStateClass.MEASUREMENT
     
-    if any(x in key_lower for x in ['pellet', 'dose', 'trip', 'consumption', 'capacity']) and not 'auger_capacity' in key_lower:
+    if any(x in key_lower for x in ['pellet', 'dose', 'trip', 'consumption', 'capacity']) and not 'auger_capacity' in key_lower and not 'auger_consumption' in key_lower:
         return "kg", SensorDeviceClass.WEIGHT, SensorStateClass.MEASUREMENT
    
     # Power actual/pct (%)
@@ -62,7 +62,7 @@ def get_sensor_config(key):
         return "s", SensorDeviceClass.DURATION, None
     
     # Gram
-    if 'auger_capacity' in key_lower or 'min_dose' in key_lower:
+    if 'auger_capacity' in key_lower or 'min_dose' in key_lower or 'settings/hopper/auger_consumption' in key:
         return "g", None, SensorStateClass.MEASUREMENT
     
     # Distance (cm)
@@ -217,6 +217,11 @@ async def async_setup_entry(hass, entry, async_add_entities):
     
     _LOGGER.info(f"✓ Total sensors created: {len(sensors)}")
     
+    # INFO MESSAGE SENSOR
+    sensors.append(
+        RTBInfoSensor(coordinator, f'{entry_id}_v2_info_message')
+    )
+    
     async_add_entities(sensors, True)
 
 
@@ -291,30 +296,13 @@ class RTBDynamicSensor(CoordinatorEntity, SensorEntity):
     @property
     def entity_category(self):
         """Return entity category."""
-        # Vigtige settings skal IKKE have category (så de kan være enabled)
-        important_settings = [
-            'settings/boiler/temp',
-            'settings/boiler/diff_over',
-            'settings/boiler/diff_under',
-            'settings/hopper/content',
-            'settings/hopper/min_content',
-            'settings/hot_water/temp',
-            'settings/auger/kw_max',
-            'settings/auger/kw_min',
-            'settings/fan/speed_10',
-            'settings/fan/speed_50',
-            'settings/fan/speed_100',
-        ]
-        if self.client_key in important_settings:
-            return None  # Ingen category = kan være enabled
-        
-        # Advanced data → DIAGNOSTIC
+        # Advanced data → DIAGNOSTIC (read-only)
         if self.client_key.startswith('advanced_data/'):
             return EntityCategory.DIAGNOSTIC
         
-        # Andre settings → CONFIG (disabled)
-        elif self.client_key.startswith('settings/'):
-            return EntityCategory.CONFIG
+        # Settings → None (writable, havner under Sensorer)
+        if self.client_key.startswith('settings/'):
+            return None
         
         return None
 
@@ -507,6 +495,7 @@ class RTBConsumptionHistorySensor(CoordinatorEntity, SensorEntity):
             
             # DAILY: Reverse per måned
             elif 'days' in self.client_key or 'daily' in self.client_key:
+                values = values[:30]
                 current_day = datetime.now().day
                 this_month = values[:current_day]
                 last_month = values[current_day:]
@@ -539,4 +528,48 @@ class RTBConsumptionHistorySensor(CoordinatorEntity, SensorEntity):
     def entity_registry_enabled_default(self):
         if 'dhw' in self.client_key.lower():
             return False
-        return True  
+        return True
+
+
+class RTBInfoSensor(CoordinatorEntity, SensorEntity):
+    """Sensor showing current info message number from NBE boiler."""
+
+    def __init__(self, coordinator, uid):
+        """Initialize."""
+        super().__init__(coordinator)
+        self.uid = uid
+
+    @property
+    def name(self):
+        serial = self.coordinator.proxy.serial
+        return f"NBE {serial} Info Message"
+
+    @property
+    def unique_id(self):
+        return self.uid
+
+    @property
+    def state(self):
+        """Return info message number."""
+        return self.coordinator.info_message
+
+    @property
+    def extra_state_attributes(self):
+        return {
+            "datapoint_path": "info/",
+            "writable": False,
+        }
+
+    @property
+    def device_info(self):
+        return {
+            "identifiers": {(DOMAIN, self.coordinator.entry_id)},
+        }
+
+    @property
+    def entity_category(self):
+        return EntityCategory.DIAGNOSTIC
+
+    @property
+    def entity_registry_enabled_default(self):
+        return True
