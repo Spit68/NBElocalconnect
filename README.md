@@ -125,7 +125,7 @@ cards:
       action: toggle
 ```
 
-### Consumption History for 31 days
+### Consumption History for 30 days
 
 ![Consumption History](add_integration/31_days_graf.png)
 
@@ -136,21 +136,21 @@ Where xxxxx is your boiler serial number
 type: custom:apexcharts-card
 header:
   show: true
-  title: Forbrug - Sidste 31 dage
-graph_span: 31d
+  title: Forbrug - Sidste 30 dage
+graph_span: 30d
 series:
   - entity: sensor.nbe_xxxxx_consumption_daily
     type: column
     name: kg
     data_generator: |
       const values = entity.attributes.values;
-      if (!values || values.length < 31) return [];
+      if (!values || values.length < 30) return [];
 
       const result = [];
       const today = new Date();
       today.setHours(0, 0, 0, 0);
 
-      for (let i = 0; i < 31; i++) {
+      for (let i = 0; i < 30; i++) {
         const date = new Date(today);
         date.setDate(today.getDate() - i);
         result.push([date.getTime(), parseFloat(values[i])]);
