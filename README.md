@@ -127,7 +127,7 @@ cards:
 
 ### Consumption History for 30 days
 
-![Consumption History](add_integration/31_days_graf.png)
+![Consumption History](add_integration/30_days_graf.png)
 
 Where xxxxx is your boiler serial number
 
