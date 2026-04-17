@@ -25,6 +25,25 @@ NBElocalconnect represents a complete rewrite and expansion of the original code
 - **Settings**: All configurable boiler parameters including weather compensation curves
 - **DHW (Domestic Hot Water)**: Consumption tracking and temperature monitoring
 
+### Status & Info Sensors
+
+The integration provides several pre-built sensors for monitoring boiler status:
+
+- **Alarm Message**: Translated boiler state text (e.g. "Power", "Ignition 1", "Alarm ignition")
+- **Substate Message**: Detailed step description during active sequences (e.g. "Ventilates", "Ignition")
+- **Info Message Text**: Active info messages from the boiler — supports multiple simultaneous messages
+- **Info Message**: Raw info message number(s) from the boiler
+- **State Countdown**: Real-time live countdown in seconds for the current boiler step — automatically resets when boiler enters idle states
+- **Scan Interval**: Adjustable update interval (10–300 seconds) — set directly in the Home Assistant UI, value is restored after restart
+
+### Multilingual Support
+
+The integration supports multiple languages. Translation files are included for:
+- Danish (`da.json`)
+- English (`en.json`)
+
+The language is automatically selected based on your Home Assistant language settings and switches dynamically without restart. Contributions for additional languages are welcome — add a new JSON file in the `translations/` folder following the same structure as the existing files.
+
 ### Supported Controllers
 - V7
 - V10
@@ -88,7 +107,8 @@ data:
   value: 120
 ```
 *This will set the hopper content to 120 kg.*
-xxxxx is your boiler serial number
+
+where xxxxx is your boiler serial number
 
 ### Button Controls
 - **Start Boiler**: Starts boiler operation
@@ -97,7 +117,7 @@ xxxxx is your boiler serial number
 
 ![Button Controls](add_integration/buttons.png)
 
-where xxxxx er your boiler serial
+where xxxxx is your boiler serial number
 
 **Lovelace Card Example:**
 ```yaml
@@ -129,7 +149,7 @@ cards:
 
 ![Consumption History](add_integration/30_daysgraf.png)
 
-Where xxxxx is your boiler serial number
+where xxxxx is your boiler serial number
 
 **Lovelace Card Example (with apexchart)**
 ```yaml
@@ -166,11 +186,11 @@ apex_config:
       format: dd MMMM yyyy
 ```	  
 
-where xxxxx is your boiler seiral number
+where xxxxx is your boiler serial number
 
 
 ### Boiler Info Example
-![Boiler Info](add_integration/markdown1.png) ![Boiler Info](add_integration/markdown2.png)v
+![Boiler Info](add_integration/markdown1.png) ![Boiler Info](add_integration/markdown2.png)
 ![Boiler Info](add_integration/markdown3.png) ![Boiler Info](add_integration/markdown4.png)
 
 **Lovelace Card Example**
@@ -195,7 +215,7 @@ content: >
   {% if info %}{{ info.replace(' | ', '\n') }}{% endif %} </center>
 ```
 
-where xxxxx is your boiler seiral number
+where xxxxx is your boiler serial number
 
 
 ### Automation Example
@@ -225,7 +245,3 @@ For issues, feature requests, or contributions:
 ## License
 
 GPL-2.0 License - See LICENSE file for details
-
----
-
-**Note**: This integration communicates directly with your boiler controller using the local network. No data is sent to external cloud services.
