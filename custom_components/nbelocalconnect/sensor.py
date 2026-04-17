@@ -1,4 +1,6 @@
 """NBELocalConnect - Dynamisk sensor platform."""
+from homeassistant.core import callback
+from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -12,7 +14,7 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
 )
 from .const import DOMAIN
-from datetime import datetime
+from datetime import datetime, timedelta
 from logging import getLogger
 
 _LOGGER = getLogger(__name__)
@@ -217,11 +219,31 @@ async def async_setup_entry(hass, entry, async_add_entities):
     
     _LOGGER.info(f"✓ Total sensors created: {len(sensors)}")
     
-    # INFO MESSAGE SENSOR
+    # INFO MESSAGE SENSOR (tal)
     sensors.append(
         RTBInfoSensor(coordinator, f'{entry_id}_v2_info_message')
     )
-    
+
+    # ALARM MSG SENSOR (tekst fra boiler_state oversættelse)
+    sensors.append(
+        RTBAlarmMsgSensor(coordinator, f'{entry_id}_v2_alarm_msg')
+    )
+
+    # SUBSTATE MSG SENSOR (tekst fra boiler_substate oversættelse)
+    sensors.append(
+        RTBSubstateMsgSensor(coordinator, f'{entry_id}_v2_substate_msg')
+    )
+
+    # INFO MSG SENSOR (tekst fra boiler_info oversættelse)
+    sensors.append(
+        RTBInfoMsgSensor(coordinator, f'{entry_id}_v2_info_msg')
+    )
+
+    # STATE COUNTDOWN SENSOR
+    sensors.append(
+        RTBCountdownSensor(coordinator, f'{entry_id}_v2_state_countdown')
+    )
+
     async_add_entities(sensors, True)
 
 
@@ -244,8 +266,7 @@ class RTBDynamicSensor(CoordinatorEntity, SensorEntity):
     
     @property
     def name(self):
-        serial = self.coordinator.proxy.serial
-        return f"NBE {serial} {self.sensorname}"
+        return self.sensorname
     
     @property
     def unique_id(self):
@@ -255,7 +276,7 @@ class RTBDynamicSensor(CoordinatorEntity, SensorEntity):
     def state(self):
         """Return state."""
         data = self.coordinator.rtbdata.get(self.client_key)
-        
+
         # content skal ganges med 10 (kg)
         if 'content' in self.client_key and 'min_content' not in self.client_key and 'operating_data' in self.client_key:
             try:
@@ -354,8 +375,7 @@ class RTBBinarySensor(CoordinatorEntity, BinarySensorEntity):
     
     @property
     def name(self):
-        serial = self.coordinator.proxy.serial
-        return f"NBE {serial} {self.sensorname}"
+        return self.sensorname
     
     @property
     def unique_id(self):
@@ -420,8 +440,7 @@ class RTBConsumptionHistorySensor(CoordinatorEntity, SensorEntity):
     
     @property
     def name(self):
-        serial = self.coordinator.proxy.serial
-        return f"NBE {serial} {self.sensorname}"
+        return self.sensorname
     
     @property
     def unique_id(self):
@@ -532,6 +551,7 @@ class RTBConsumptionHistorySensor(CoordinatorEntity, SensorEntity):
 
 
 class RTBInfoSensor(CoordinatorEntity, SensorEntity):
+    _attr_has_entity_name = False
     """Sensor showing current info message number from NBE boiler."""
 
     def __init__(self, coordinator, uid):
@@ -541,8 +561,7 @@ class RTBInfoSensor(CoordinatorEntity, SensorEntity):
 
     @property
     def name(self):
-        serial = self.coordinator.proxy.serial
-        return f"NBE {serial} Info Message"
+        return "Info Message"
 
     @property
     def unique_id(self):
@@ -550,8 +569,11 @@ class RTBInfoSensor(CoordinatorEntity, SensorEntity):
 
     @property
     def state(self):
-        """Return info message number."""
-        return self.coordinator.info_message
+        """Return info message numbers."""
+        msgs = getattr(self.coordinator, 'info_messages', [])
+        if not msgs:
+            return 0
+        return ",".join(str(n) for n in msgs)
 
     @property
     def extra_state_attributes(self):
@@ -569,6 +591,254 @@ class RTBInfoSensor(CoordinatorEntity, SensorEntity):
     @property
     def entity_category(self):
         return EntityCategory.DIAGNOSTIC
+
+    @property
+    def entity_registry_enabled_default(self):
+        return True
+
+
+class RTBAlarmMsgSensor(CoordinatorEntity, SensorEntity):
+    _attr_has_entity_name = False
+    """Sensor showing translated boiler state text."""
+
+    def __init__(self, coordinator, uid):
+        super().__init__(coordinator)
+        self.uid = uid
+
+    @property
+    def name(self):
+        return "Alarm Message"
+
+    @property
+    def unique_id(self):
+        return self.uid
+
+    @property
+    def state(self):
+        """Return translated boiler state text."""
+        data = self.coordinator.rtbdata.get('operating_data/state')
+        if data is None:
+            return None
+        translations = self.coordinator.translations.get("boiler_state", {})
+        return translations.get(str(data), str(data))
+
+    @property
+    def extra_state_attributes(self):
+        return {
+            "state_number": self.coordinator.rtbdata.get('operating_data/state'),
+            "datapoint_path": "operating_data/state",
+            "writable": False,
+        }
+
+    @property
+    def device_info(self):
+        return {"identifiers": {(DOMAIN, self.coordinator.entry_id)}}
+
+    @property
+    def entity_category(self):
+        return None
+
+    @property
+    def entity_registry_enabled_default(self):
+        return True
+
+
+class RTBSubstateMsgSensor(CoordinatorEntity, SensorEntity):
+    """Sensor showing translated substate text."""
+
+    def __init__(self, coordinator, uid):
+        super().__init__(coordinator)
+        self.uid = uid
+
+    @property
+    def name(self):
+        return "Substate Message"
+
+    @property
+    def unique_id(self):
+        return self.uid
+
+    @property
+    def state(self):
+        """Return translated substate text."""
+        substate = self.coordinator.rtbdata.get('operating_data/substate')
+        if not substate or str(substate) == '0':
+            return ""
+        translations = self.coordinator.translations.get("boiler_substate", {})
+        return translations.get(str(substate), str(substate))
+
+    @property
+    def extra_state_attributes(self):
+        return {
+            "substate_number": self.coordinator.rtbdata.get('operating_data/substate'),
+            "datapoint_path": "operating_data/substate",
+            "writable": False,
+        }
+
+    @property
+    def device_info(self):
+        return {"identifiers": {(DOMAIN, self.coordinator.entry_id)}}
+
+    @property
+    def entity_category(self):
+        return None
+
+    @property
+    def entity_registry_enabled_default(self):
+        return True
+
+
+class RTBInfoMsgSensor(CoordinatorEntity, SensorEntity):
+    """Sensor showing translated info message text."""
+
+    def __init__(self, coordinator, uid):
+        super().__init__(coordinator)
+        self.uid = uid
+
+    @property
+    def name(self):
+        return "Info Message Text"
+
+    @property
+    def unique_id(self):
+        return self.uid
+
+    @property
+    def state(self):
+        """Return translated info message texts separated by |."""
+        msgs = getattr(self.coordinator, 'info_messages', [])
+        if not msgs:
+            return ""
+        translations = self.coordinator.translations.get("boiler_info", {})
+        parts = []
+        for num in msgs:
+            text = translations.get(str(num), str(num))
+            if text:
+                parts.append(text)
+        return " | ".join(parts) if parts else ""
+
+    @property
+    def extra_state_attributes(self):
+        return {
+            "info_numbers": getattr(self.coordinator, 'info_messages', []),
+            "datapoint_path": "info/",
+            "writable": False,
+        }
+
+    @property
+    def device_info(self):
+        return {"identifiers": {(DOMAIN, self.coordinator.entry_id)}}
+
+    @property
+    def entity_category(self):
+        return None
+
+    @property
+    def entity_registry_enabled_default(self):
+        return True
+
+class RTBCountdownSensor(CoordinatorEntity, SensorEntity):
+    """Sensor showing a real-time countdown based on substate_sec from the boiler."""
+
+    # States where countdown should be zero (boiler not in an active timed step)
+    IDLE_STATES = {'5', '6', '9', '10', '22', '23', '24', '25'}
+
+    def __init__(self, coordinator, uid):
+        super().__init__(coordinator)
+        self.uid = uid
+        self._last_value = 0
+        self._last_update = None
+        self._unsub_timer = None
+
+    async def async_added_to_hass(self):
+        """Start 1-second timer when added to HA."""
+        await super().async_added_to_hass()
+        self._unsub_timer = async_track_time_interval(
+            self.hass,
+            self._tick,
+            timedelta(seconds=1)
+        )
+
+    async def async_will_remove_from_hass(self):
+        """Cancel timer when removed."""
+        if self._unsub_timer:
+            self._unsub_timer()
+            self._unsub_timer = None
+
+    @callback
+    def _tick(self, now=None):
+        """Called every second to update countdown display."""
+        self.async_write_ha_state()
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Handle updated data from coordinator — sync countdown to boiler value."""
+        # Check if boiler is in an idle state — if so, reset to 0
+        boiler_state = self.coordinator.rtbdata.get('operating_data/state')
+        if str(boiler_state) in self.IDLE_STATES:
+            self._last_value = 0
+            self._last_update = None
+            self.async_write_ha_state()
+            return
+
+        raw = self.coordinator.rtbdata.get('operating_data/substate_sec')
+        try:
+            val = int(raw) if raw else 0
+        except (ValueError, TypeError):
+            val = 0
+
+        if val > 1:
+            self._last_value = val
+            self._last_update = datetime.now()
+        else:
+            self._last_value = 0
+            self._last_update = None
+
+        self.async_write_ha_state()
+
+    @property
+    def name(self):
+        return "State Countdown"
+
+    @property
+    def unique_id(self):
+        return self.uid
+
+    @property
+    def state(self):
+        """Return current countdown value in seconds."""
+        if not self._last_update or self._last_value <= 0:
+            return 0
+        elapsed = (datetime.now() - self._last_update).total_seconds()
+        remaining = max(0, self._last_value - int(elapsed))
+        return remaining
+
+    @property
+    def unit_of_measurement(self):
+        return "s"
+
+    @property
+    def extra_state_attributes(self):
+        remaining = self.state
+        if remaining > 0:
+            minutes = remaining // 60
+            seconds = remaining % 60
+            formatted = f"{minutes}:{seconds:02d}"
+        else:
+            formatted = "0:00"
+        return {
+            "formatted": formatted,
+            "datapoint_path": "operating_data/substate_sec",
+            "writable": False,
+        }
+
+    @property
+    def device_info(self):
+        return {"identifiers": {(DOMAIN, self.coordinator.entry_id)}}
+
+    @property
+    def entity_category(self):
+        return None
 
     @property
     def entity_registry_enabled_default(self):

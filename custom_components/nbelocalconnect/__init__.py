@@ -1,5 +1,9 @@
+import asyncio
 import datetime
-from homeassistant.const import CONF_PASSWORD, CONF_SCAN_INTERVAL
+import threading
+import json
+import os
+from homeassistant.const import CONF_PASSWORD, CONF_SCAN_INTERVAL, EVENT_CORE_CONFIG_UPDATE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.exceptions import HomeAssistantError
@@ -11,6 +15,23 @@ from logging import getLogger
 
 logger = getLogger(__name__)
 
+
+def load_translations(language: str) -> dict:
+    """Load translation file for given language, fallback to en."""
+    translations_dir = os.path.join(os.path.dirname(__file__), "translations")
+    lang_file = os.path.join(translations_dir, f"{language}.json")
+
+    if not os.path.exists(lang_file):
+        logger.debug(f"No translation file for '{language}', falling back to en")
+        lang_file = os.path.join(translations_dir, "en.json")
+
+    try:
+        with open(lang_file, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        logger.error(f"Error loading translations from {lang_file}: {e}")
+        return {"boiler_state": {}, "boiler_substate": {}, "boiler_info": {}}
+
 async def async_setup(hass: HomeAssistant, config: dict):
     """Set up the NBE component."""
     hass.data.setdefault(DOMAIN, {})
@@ -21,7 +42,6 @@ async def async_setup_entry(hass, entry):
     logger.info("Setting up NBELocalConnect integration...")
 
     # Ryd op i orphaned entities fra tidligere installationer.
-    # HA's entity registry overlever HACS-sletning, så gamle poster kan hænge.
     from homeassistant.helpers import entity_registry as er
     ent_reg = er.async_get(hass)
     active_entry_ids = {e.entry_id for e in hass.config_entries.async_entries(DOMAIN)}
@@ -40,7 +60,7 @@ async def async_setup_entry(hass, entry):
     password = entry.data.get(CONF_PASSWORD)
     port = entry.data.get('port', 8483)
     serialnumber = entry.data.get('serial', None)
-    scan_interval = entry.data.get(CONF_SCAN_INTERVAL, 60)
+    scan_interval = entry.data.get(CONF_SCAN_INTERVAL, 30)
     
     if serialnumber:
         ip_address = '<broadcast>'
@@ -75,11 +95,13 @@ async def async_setup_entry(hass, entry):
     )    
     
     # Opret coordinator
+    proxy_lock = threading.Lock()
     coordinator = RTBDataCoordinator(
         hass, 
         entry.entry_id, 
         proxy,
-        scan_interval
+        scan_interval,
+        proxy_lock
     )
     
     # Hent initial data
@@ -89,7 +111,19 @@ async def async_setup_entry(hass, entry):
     hass.data[DOMAIN][entry.entry_id+'_coordinator'] = coordinator
     
     # Setup platforms
-    await hass.config_entries.async_forward_entry_setups(entry, ["sensor", "button"])
+    await hass.config_entries.async_forward_entry_setups(entry, ["sensor", "button", "number"])
+
+    # Lyt efter sprog ændringer
+    async def handle_language_change(event):
+        """Reload translations when HA language changes."""
+        new_language = hass.config.language
+        logger.info(f"Language changed to '{new_language}', reloading translations...")
+        coordinator.translations = load_translations(new_language)
+        coordinator.async_update_listeners()
+
+    entry.async_on_unload(
+        hass.bus.async_listen(EVENT_CORE_CONFIG_UPDATE, handle_language_change)
+    )
     
     # Register service for setting values
     async def handle_set_setting(call):
@@ -137,7 +171,7 @@ async def async_setup_entry(hass, entry):
 
 async def async_unload_entry(hass, entry):
     """Unload a config entry."""
-    unload_ok = await hass.config_entries.async_unload_platforms(entry, ["sensor", "button"])
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, ["sensor", "button", "number"])
     
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id+'_coordinator')
@@ -150,13 +184,247 @@ async def async_unload_entry(hass, entry):
 class RTBDataCoordinator(DataUpdateCoordinator):
     """Data coordinator der henter ALT fra fyret."""
     
-    def __init__(self, hass, entry_id, proxy, scan_interval):
+    def __init__(self, hass, entry_id, proxy, scan_interval, proxy_lock):
         """Initialize coordinator."""
         self.hass = hass
         self.entry_id = entry_id
         self.proxy = proxy
         self.rtbdata = RTBData([])
         self.info_message = 0
+        self.info_messages = []
+        self.translations = load_translations(hass.config.language)
+        self.proxy_lock = proxy_lock
+        
+        update_interval = datetime.timedelta(seconds=scan_interval)
+        super().__init__(hass, logger, name=DOMAIN, update_interval=update_interval)
+    
+    async def _async_update_data(self):
+        """Fetch ALLE data fra fyret."""
+        proxy_lock = self.proxy_lock
+
+        def locked_get(path):
+            with proxy_lock:
+                return self.proxy.get(path)
+
+        try:
+            logger.info("Fetching ALL data from boiler...")
+            all_data = []
+
+            logger.debug("Fetching operating_data/...")
+            try:
+                data = await self.hass.async_add_executor_job(locked_get, 'operating_data/')
+                if data:
+                    all_data.extend(data)
+                    logger.debug(f"  ✓ Got {len(data)} operating_data items")
+            except Exception as e:
+                logger.debug(f"  ✗ Error fetching operating_data: {e}")
+
+            logger.debug("Fetching advanced_data/...")
+            try:
+                data = await self.hass.async_add_executor_job(locked_get, 'advanced_data/')
+                if data:
+                    all_data.extend(data)
+                    logger.debug(f"  ✓ Got {len(data)} advanced_data items")
+            except Exception as e:
+                logger.debug(f"  ✗ Error fetching advanced_data: {e}")
+
+            logger.debug("Fetching consumption_data individually...")
+            for key in ['consumption_data/counter','consumption_data/total_hours','consumption_data/total_days',
+                        'consumption_data/total_months','consumption_data/total_years','consumption_data/dhw_hours',
+                        'consumption_data/dhw_days','consumption_data/dhw_months','consumption_data/dhw_years']:
+                try:
+                    data = await self.hass.async_add_executor_job(locked_get, key)
+                    if data:
+                        all_data.extend(data)
+                        logger.debug(f"  ✓ Got {key}")
+                except Exception as e:
+                    logger.debug(f"  ✗ No data for {key}")
+
+            for endpoint in ['settings/boiler/','settings/hot_water/','settings/regulation/','settings/weather/',
+                             'settings/weather2/','settings/oxygen/','settings/hopper/','settings/fan/',
+                             'settings/auger/','settings/ignition/','settings/pump/','settings/sun/',
+                             'settings/misc/','settings/alarm/','settings/manual/']:
+                logger.debug(f"Fetching {endpoint}...")
+                try:
+                    data = await self.hass.async_add_executor_job(locked_get, endpoint)
+                    if data:
+                        all_data.extend(data)
+                        logger.debug(f"  ✓ Got {len(data)} items from {endpoint}")
+                except Exception as e:
+                    logger.debug(f"  ✗ Error fetching {endpoint}: {e}")
+
+            self.rtbdata.set(all_data)
+            logger.info(f"✅ Successfully fetched {len(all_data)} total data points!")
+
+            logger.debug("Fetching info/...")
+            try:
+                data = await self.hass.async_add_executor_job(locked_get, 'info/')
+                if data:
+                    raw = data[0].strip() if data else '0'
+                    parts = [p.strip() for p in raw.split(',') if p.strip()]
+                    nums = []
+                    for p in parts:
+                        try:
+                            n = int(p)
+                            if n != 0:
+                                nums.append(n)
+                        except (ValueError, TypeError):
+                            pass
+                    self.info_messages = nums
+                    self.info_message = nums[0] if nums else 0
+                    logger.debug(f"  ✓ Info messages: {self.info_messages}")
+            except Exception as e:
+                logger.debug(f"  ✗ Error fetching info: {e}")
+                self.info_messages = []
+                self.info_message = 0
+
+            return all_data
+
+        except TimeoutError:
+            logger.debug("Timeout fetching data. Will retry next interval.")
+            return None
+        except Exception as e:
+            logger.error(f"Error fetching data: {e}")
+            return None
+
+async def async_unload_entry(hass, entry):
+    """Unload a config entry."""
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, ["sensor", "button", "number"])
+    
+    if unload_ok:
+        hass.data[DOMAIN].pop(entry.entry_id+'_coordinator')
+        # Unregister service
+        hass.services.async_remove(DOMAIN, "set_setting")
+    
+    return unload_ok
+
+
+class RTBDataCoordinator(DataUpdateCoordinator):
+    """Data coordinator der henter ALT fra fyret."""
+    
+    def __init__(self, hass, entry_id, proxy, scan_interval, proxy_lock):
+        """Initialize coordinator."""
+        self.hass = hass
+        self.entry_id = entry_id
+        self.proxy = proxy
+        self.rtbdata = RTBData([])
+        self.info_message = 0
+        self.info_messages = []
+        self.translations = load_translations(hass.config.language)
+        self.proxy_lock = proxy_lock
+        
+        update_interval = datetime.timedelta(seconds=scan_interval)
+        super().__init__(hass, logger, name=DOMAIN, update_interval=update_interval)
+    
+    async def _async_update_data(self):
+        """Fetch ALLE data fra fyret."""
+        async with self.proxy_lock:
+            try:
+                logger.info("Fetching ALL data from boiler...")
+                all_data = []
+
+                logger.debug("Fetching operating_data/...")
+                try:
+                    data = await self.hass.async_add_executor_job(self.proxy.get, 'operating_data/')
+                    if data:
+                        all_data.extend(data)
+                        logger.debug(f"  ✓ Got {len(data)} operating_data items")
+                except Exception as e:
+                    logger.debug(f"  ✗ Error fetching operating_data: {e}")
+
+                logger.debug("Fetching advanced_data/...")
+                try:
+                    data = await self.hass.async_add_executor_job(self.proxy.get, 'advanced_data/')
+                    if data:
+                        all_data.extend(data)
+                        logger.debug(f"  ✓ Got {len(data)} advanced_data items")
+                except Exception as e:
+                    logger.debug(f"  ✗ Error fetching advanced_data: {e}")
+
+                logger.debug("Fetching consumption_data individually...")
+                for key in ['consumption_data/counter','consumption_data/total_hours','consumption_data/total_days',
+                            'consumption_data/total_months','consumption_data/total_years','consumption_data/dhw_hours',
+                            'consumption_data/dhw_days','consumption_data/dhw_months','consumption_data/dhw_years']:
+                    try:
+                        data = await self.hass.async_add_executor_job(self.proxy.get, key)
+                        if data:
+                            all_data.extend(data)
+                            logger.debug(f"  ✓ Got {key}")
+                    except Exception as e:
+                        logger.debug(f"  ✗ No data for {key}")
+
+                for endpoint in ['settings/boiler/','settings/hot_water/','settings/regulation/','settings/weather/',
+                                 'settings/weather2/','settings/oxygen/','settings/hopper/','settings/fan/',
+                                 'settings/auger/','settings/ignition/','settings/pump/','settings/sun/',
+                                 'settings/misc/','settings/alarm/','settings/manual/']:
+                    logger.debug(f"Fetching {endpoint}...")
+                    try:
+                        data = await self.hass.async_add_executor_job(self.proxy.get, endpoint)
+                        if data:
+                            all_data.extend(data)
+                            logger.debug(f"  ✓ Got {len(data)} items from {endpoint}")
+                    except Exception as e:
+                        logger.debug(f"  ✗ Error fetching {endpoint}: {e}")
+
+                self.rtbdata.set(all_data)
+                logger.info(f"✅ Successfully fetched {len(all_data)} total data points!")
+
+                logger.debug("Fetching info/...")
+                try:
+                    data = await self.hass.async_add_executor_job(self.proxy.get, 'info/')
+                    if data:
+                        raw = data[0].strip() if data else '0'
+                        parts = [p.strip() for p in raw.split(',') if p.strip()]
+                        nums = []
+                        for p in parts:
+                            try:
+                                n = int(p)
+                                if n != 0:
+                                    nums.append(n)
+                            except (ValueError, TypeError):
+                                pass
+                        self.info_messages = nums
+                        self.info_message = nums[0] if nums else 0
+                        logger.debug(f"  ✓ Info messages: {self.info_messages}")
+                except Exception as e:
+                    logger.debug(f"  ✗ Error fetching info: {e}")
+                    self.info_messages = []
+                    self.info_message = 0
+
+                return all_data
+
+            except TimeoutError:
+                logger.debug("Timeout fetching data. Will retry next interval.")
+                return None
+            except Exception as e:
+                logger.error(f"Error fetching data: {e}")
+                return None
+
+async def async_unload_entry(hass, entry):
+    """Unload a config entry."""
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, ["sensor", "button", "number"])
+    
+    if unload_ok:
+        hass.data[DOMAIN].pop(entry.entry_id+'_coordinator')
+        # Unregister service
+        hass.services.async_remove(DOMAIN, "set_setting")
+    
+    return unload_ok
+
+
+class RTBDataCoordinator(DataUpdateCoordinator):
+    """Data coordinator der henter ALT fra fyret."""
+    
+    def __init__(self, hass, entry_id, proxy, scan_interval, proxy_lock):
+        """Initialize coordinator."""
+        self.hass = hass
+        self.entry_id = entry_id
+        self.proxy = proxy
+        self.rtbdata = RTBData([])
+        self.info_message = 0
+        self.info_messages = []
+        self.translations = load_translations(hass.config.language)
+        self.proxy_lock = proxy_lock
         
         update_interval = datetime.timedelta(seconds=scan_interval)
         super().__init__(hass, logger, name=DOMAIN, update_interval=update_interval)
@@ -269,15 +537,23 @@ class RTBDataCoordinator(DataUpdateCoordinator):
                     self.proxy.get, 'info/'
                 )
                 if data:
-                    # Returnerer liste som ['13'] eller ['0']
+                    # Returnerer liste som ['13'] eller ['13,5'] ved flere beskeder
                     raw = data[0].strip() if data else '0'
-                    try:
-                        self.info_message = int(raw)
-                    except (ValueError, TypeError):
-                        self.info_message = 0
-                    logger.debug(f"  ✓ Info message: {self.info_message}")
+                    parts = [p.strip() for p in raw.split(',') if p.strip()]
+                    nums = []
+                    for p in parts:
+                        try:
+                            n = int(p)
+                            if n != 0:
+                                nums.append(n)
+                        except (ValueError, TypeError):
+                            pass
+                    self.info_messages = nums
+                    self.info_message = nums[0] if nums else 0
+                    logger.debug(f"  ✓ Info messages: {self.info_messages}")
             except Exception as e:
                 logger.debug(f"  ✗ Error fetching info: {e}")
+                self.info_messages = []
                 self.info_message = 0
             
             return all_data

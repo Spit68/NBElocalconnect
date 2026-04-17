@@ -1,11 +1,11 @@
 from homeassistant.core import callback
 from homeassistant.helpers.entity import Entity
 from homeassistant.components.button import ButtonEntity
-
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .const import DOMAIN
 from .protocol import Proxy
 from logging import getLogger
+import asyncio
 
 _LOGGER = getLogger(__name__)
 
@@ -37,7 +37,7 @@ class RTBSignalButton(CoordinatorEntity, ButtonEntity):
     def name(self):
         """Return the name of the switch."""
         serial = self.coordinator.proxy.serial
-        return f"NBE {serial} {self._name}"
+        return f"{self._name}"
     
     @property
     def unique_id(self):
@@ -50,12 +50,18 @@ class RTBSignalButton(CoordinatorEntity, ButtonEntity):
             "identifiers": {(DOMAIN, self.coordinator.entry_id)},
         }        
 
-    def press(self) -> None:
+    async def async_press(self) -> None:
         """Press the button."""
         _LOGGER.debug(f"Pressing {self._name}...")
+        def _do_set():
+            with self.coordinator.proxy_lock:
+                self.proxy.set(self._path, self._value)
+
         try:
-            self.proxy.set(self._path, self._value)
+            await self.hass.async_add_executor_job(_do_set)
             _LOGGER.debug(f"Successfully pressed {self._name}")
         except Exception as e:
             _LOGGER.error(f"Error pressing {self._name}: {e}")
             raise
+        await asyncio.sleep(3)        
+        await self.coordinator.async_request_refresh()

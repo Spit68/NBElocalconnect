@@ -1,21 +1,5 @@
 #! /usr/bin/python
 # -*- coding: utf-8 -*-
-"""
-    Copyright (C) 2013  Anders Nylund
-
-    This program is free software: you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 2 of the License, or
-    (at your option) any later version.
-
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""
 from __future__ import print_function
 import time
 import random
@@ -98,15 +82,12 @@ class Request_frame(object):
 
 
     #RSA textbook encryption
-    #Inspired by https://github.com/Legrandin/pycryptodome/issues/434
     def compatencrypt(self, message):
         pt_int = int.from_bytes(message, 'big')
         ct_int = pow(pt_int, self.public_key.e, self.public_key.n)
         ct = ct_int.to_bytes(self.public_key.size_in_bytes(), 'big')
         return ct.lstrip(b'\x00')
     
-    #RSA textbook decryption
-    #Inspired by https://github.com/Legrandin/pycryptodome/issues/434
     def compatdecrypt(self, message):
         ct_int = int.from_bytes(message, 'big')
         pt_int = pow(ct_int, self.public_key.e, self.public_key.n)
@@ -186,7 +167,6 @@ class Response_frame(object):
         i += 2
         self.sequencenumber = int(record[i:i+2])
         if self.sequencenumber != self.request.sequencenumber:
-            #print self.sequencenumber, self.request.sequencenumber
             raise IOError
         i += 2
         self.status = int(record[i:i+1])

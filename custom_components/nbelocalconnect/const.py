@@ -1,2 +1,2 @@
 DOMAIN = "nbelocalconnect"
-PLATFORMS = ['sensor', 'button']
+PLATFORMS = ['sensor', 'button', 'number']
