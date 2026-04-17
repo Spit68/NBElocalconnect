@@ -173,6 +173,29 @@ where xxxxx is your boiler seiral number
 ![Boiler Info](add_integration/markdown1.png) ![Boiler Info](add_integration/markdown2.png)v
 ![Boiler Info](add_integration/markdown3.png) ![Boiler Info](add_integration/markdown4.png)
 
+**Lovelace Card Example**
+```yaml
+type: markdown
+content: >
+  <center> {% set state_num = states('sensor.nbe_xxxxx_state') | int(0) %} {% if
+  state_num in (8, 11, 12, 13, 20, 27, 36, 41) %} <h2 style="color: red;">🚨 {{
+  states('sensor.nbe_xxxxx_alarm_message') }}</h2> {% elif state_num == 5 %}
+  <h2>{{ states('sensor.nbe_xxxxx_alarm_message') }} {{
+  states('sensor.nbe_xxxxx_power_pct') }}% {{
+  states('sensor.nbe_xxxxx_power_kw') }}kW</h2> {% else %} <h2>{{
+  states('sensor.nbe_xxxxx_alarm_message') }}</h2> {% endif %}
+
+
+  {{ states('sensor.nbe_boiler_xxxxx_substate_message') }} {% set cd =
+  states('sensor.nbe_boiler_xxxxx_state_countdown') | int(0) %}{% if cd > 0
+  %}({{ (cd // 60) }}:{{ '%02d' | format(cd % 60) }}){% endif %} {% set info =
+  states('sensor.nbe_xxxxx_info_message_text') %}
+
+
+  {% if info %}{{ info.replace(' | ', '\n') }}{% endif %} </center>
+
+where xxxxx is your boiler seiral number
+
 
 ### Automation Example
 ```yaml
