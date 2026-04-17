@@ -168,6 +168,12 @@ apex_config:
 
 where xxxxx is your boiler seiral number
 
+
+### Boiler Info Example
+![Boiler Info](add_integration/markdown1.png) ![Boiler Info](add_integration/markdown2.png)v
+![Boiler Info](add_integration/markdown3.png) ![Boiler Info](add_integration/markdown4.png)
+
+
 ### Automation Example
 ```yaml
 automation:
