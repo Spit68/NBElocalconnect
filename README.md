@@ -193,6 +193,7 @@ content: >
 
 
   {% if info %}{{ info.replace(' | ', '\n') }}{% endif %} </center>
+```
 
 where xxxxx is your boiler seiral number
 
