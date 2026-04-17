@@ -44,6 +44,17 @@ The integration supports multiple languages. Translation files are included for:
 
 The language is automatically selected based on your Home Assistant language settings and switches dynamically without restart. Contributions for additional languages are welcome — add a new JSON file in the `translations/` folder following the same structure as the existing files.
 
+### Contributing Translations
+
+Want to add your language?
+
+1. Copy `translations/en.json` from the repository
+2. Translate all values to your language — keep the `"Info: "` and `"Alarm: "` prefixes in your language
+3. Save the file as your language code (e.g. `de.json` for German, `nl.json` for Dutch)
+4. Submit a Pull Request on GitHub
+
+You can use [jsoneditoronline.org](https://jsoneditoronline.org) to easily edit the JSON file online before submitting.
+
 ### Supported Controllers
 - V7
 - V10
