@@ -216,7 +216,7 @@ apex_config:
   tooltip:
     x:
       format: dd MMMM yyyy
-```	  
+```
 
 where xxxxx is your boiler serial number
 
