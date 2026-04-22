@@ -30,3 +30,15 @@ set_setting:
           min: 0
           max: 1000
           step: 0.1
+
+backup_settings:
+  name: Backup Settings
+  description: Save all boiler settings to a backup file in /config/nbe_backup/
+
+restore_settings:
+  name: Restore Settings
+  description: Restore boiler settings from the file selected in the "Restore — choose backup file" dropdown
+
+delete_backup:
+  name: Delete Backup
+  description: Delete the backup file currently selected in the dropdown
