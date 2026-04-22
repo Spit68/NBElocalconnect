@@ -16,6 +16,7 @@ NBElocalconnect represents a complete rewrite and expansion of the original code
 - **Write Services**: Change boiler settings directly from Home Assistant
 - **Button Controls**: Start/stop boiler operations and reset alarms
 - **Device Discovery**: Automatic detection via UDP broadcast using serial number
+- **Backup & Restore**: Save and restore all boiler settings to/from a JSON file
 - **DHW Consumption Tracking**: Proper time-based sorting of consumption history
 
 ### Supported Data Points
@@ -120,6 +121,26 @@ data:
 *This will set the hopper content to 120 kg.*
 
 where xxxxx is your boiler serial number
+
+### Backup & Restore
+
+The integration includes built-in backup and restore functionality for all boiler settings.
+
+**How it works:**
+- Press **Backup Settings** to save all settings to `/config/nbe_backup/backup1_DD-MM-YYYY-HH-MM.json`
+- Files are auto-numbered (`backup1_`, `backup2_` etc.) — a new number is assigned for each backup
+- Select a backup file in the **Restore — choose backup file** dropdown
+- Press **Restore Settings** to write all settings back to the boiler
+- Press **Delete Backup** to delete the selected file
+
+**Important notes:**
+- Restore writes ~98 settings one by one directly to the boiler and takes approximately 3-4 minutes to complete
+- A progress notification updates every 10 settings so you can follow along
+- Some sensors may show as unavailable during restore — they will recover at the next poll
+- Settings not supported by your boiler (e.g. `lambda_expansion_module` if not installed) will log an error but restore continues without stopping
+- It is recommended to keep at least 2 backups of each configuration — backup files are very small (a few KB)
+
+**Tip:** Use backup before firmware updates — restore your settings in minutes instead of entering them manually.
 
 ### Button Controls
 - **Start Boiler**: Starts boiler operation
