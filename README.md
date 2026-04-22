@@ -276,4 +276,4 @@ For issues, feature requests, or contributions:
 
 ## License
 
-GPL-2.0 License - See LICENSE file for details
+GPL-2.0 License - See LICENSE file for details  
