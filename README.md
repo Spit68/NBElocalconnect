@@ -61,7 +61,7 @@ You can use [jsoneditoronline.org](https://jsoneditoronline.org) to easily edit 
 - V10
 - V13
 
-Due to a firmware bug in V7, V10 and V13 controllers, yearly consumption data stops being stored after 2024. This is a controller firmware limitation and cannot be fixed in this integration.
+Due to a firmware bug in V7, V10 and V13 controllers, yearly consumption data stops being stored after 2024. This is a controller firmware limitation that cannot be fixed in this integration. NBE has been contacted about this issue but has declined to fix it.
 
 ## Installation
 
