@@ -61,8 +61,6 @@ You can use [jsoneditoronline.org](https://jsoneditoronline.org) to easily edit 
 - V10
 - V13
 
-*We are hoping for a solution to support V16 controllers in the future.*
-
 ## Installation
 
 ### Manual Install via HACS
