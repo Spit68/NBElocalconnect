@@ -4,6 +4,7 @@ from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorEntity,
@@ -243,6 +244,15 @@ async def async_setup_entry(hass, entry, async_add_entities):
     sensors.append(
         RTBCountdownSensor(coordinator, f'{entry_id}_v2_state_countdown')
     )
+
+    # ENERGY SENSORS
+    energy_kwh = RTBEnergySensor(coordinator, f'{entry_id}_v2_energy_kwh', "kWh")
+    energy_wh = RTBEnergySensor(coordinator, f'{entry_id}_v2_energy_wh', "Wh")
+    sensors.append(energy_kwh)
+    sensors.append(energy_wh)
+    # Store references so reset button can access them
+    hass.data[DOMAIN][entry_id + '_energy_kwh'] = energy_kwh
+    hass.data[DOMAIN][entry_id + '_energy_wh'] = energy_wh
 
     async_add_entities(sensors, True)
 
@@ -829,6 +839,104 @@ class RTBCountdownSensor(CoordinatorEntity, SensorEntity):
         return {
             "formatted": formatted,
             "datapoint_path": "operating_data/substate_sec",
+            "writable": False,
+        }
+
+    @property
+    def device_info(self):
+        return {"identifiers": {(DOMAIN, self.coordinator.entry_id)}}
+
+    @property
+    def entity_category(self):
+        return None
+
+    @property
+    def entity_registry_enabled_default(self):
+        return True
+
+class RTBEnergySensor(CoordinatorEntity, SensorEntity, RestoreEntity):
+    """Accumulated energy sensor calculated from operating_data/power_kw.
+
+    Integrates power (kW) over time using a left Riemann sum with the
+    coordinator scan interval as the time step. Persists across HA restarts
+    via RestoreEntity. Unit is either 'kWh' or 'Wh'.
+    """
+
+    def __init__(self, coordinator, uid, unit):
+        super().__init__(coordinator)
+        self.uid = uid
+        self._unit = unit  # "kWh" or "Wh"
+        self._accumulated_kwh = 0.0
+        self._last_update_time = None
+
+    async def async_added_to_hass(self):
+        """Restore accumulated value from last known state on HA startup."""
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if last_state and last_state.state not in (None, "unknown", "unavailable"):
+            try:
+                restored = float(last_state.state)
+                if self._unit == "kWh":
+                    self._accumulated_kwh = restored
+                else:  # Wh
+                    self._accumulated_kwh = restored / 1000.0
+            except (ValueError, TypeError):
+                pass
+        # Set baseline time — first coordinator update will use this as t0
+        self._last_update_time = datetime.now()
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Accumulate energy delta on each coordinator poll."""
+        now = datetime.now()
+
+        if self._last_update_time is not None:
+            delta_hours = (now - self._last_update_time).total_seconds() / 3600
+            raw = self.coordinator.rtbdata.get("operating_data/power_kw")
+            try:
+                power_kw = float(raw) if raw else 0.0
+            except (ValueError, TypeError):
+                power_kw = 0.0
+
+            delta_kwh = power_kw * delta_hours
+            if delta_kwh > 0:
+                self._accumulated_kwh += delta_kwh
+
+        self._last_update_time = now
+        self.async_write_ha_state()
+
+    @property
+    def name(self):
+        if self._unit == "kWh":
+            return "Energy kWh"
+        return "Energy Wh"
+
+    @property
+    def unique_id(self):
+        return self.uid
+
+    @property
+    def state(self):
+        if self._unit == "kWh":
+            return round(self._accumulated_kwh, 3)
+        return round(self._accumulated_kwh * 1000, 0)
+
+    @property
+    def unit_of_measurement(self):
+        return self._unit
+
+    @property
+    def device_class(self):
+        return SensorDeviceClass.ENERGY
+
+    @property
+    def state_class(self):
+        return SensorStateClass.TOTAL_INCREASING
+
+    @property
+    def extra_state_attributes(self):
+        return {
+            "datapoint_path": "operating_data/power_kw",
             "writable": False,
         }
 

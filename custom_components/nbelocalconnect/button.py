@@ -21,6 +21,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         NBEBackupButton(coordinator, hass, f"{entry_id}_nbe_backup"),
         NBERestoreButton(coordinator, hass, f"{entry_id}_nbe_restore"),
         NBEDeleteBackupButton(coordinator, hass, f"{entry_id}_nbe_delete_backup"),
+        NBEResetEnergyButton(coordinator, hass, f"{entry_id}_nbe_reset_energy"),
     ])
 
 
@@ -143,3 +144,37 @@ class NBEDeleteBackupButton(CoordinatorEntity, ButtonEntity):
 
     async def async_press(self) -> None:
         await self._hass.services.async_call(DOMAIN, "delete_backup", {})
+
+class NBEResetEnergyButton(CoordinatorEntity, ButtonEntity):
+    """Button that resets both accumulated energy sensors to zero."""
+
+    def __init__(self, coordinator, hass, uid):
+        super().__init__(coordinator)
+        self._hass = hass
+        self.uid = uid
+
+    @property
+    def name(self):
+        return "Reset Energy"
+
+    @property
+    def unique_id(self):
+        return self.uid
+
+    @property
+    def device_info(self):
+        return {"identifiers": {(DOMAIN, self.coordinator.entry_id)}}
+
+    @property
+    def icon(self):
+        return "mdi:restore"
+
+    async def async_press(self) -> None:
+        entry_id = self.coordinator.entry_id
+        for key in [entry_id + '_energy_kwh', entry_id + '_energy_wh']:
+            sensor = self._hass.data[DOMAIN].get(key)
+            if sensor:
+                sensor._accumulated_kwh = 0.0
+                sensor._last_update_time = None
+                sensor.async_write_ha_state()
+                _LOGGER.info(f"Reset energy sensor: {key}")

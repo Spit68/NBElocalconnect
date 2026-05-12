@@ -518,6 +518,8 @@ async def async_unload_entry(hass, entry):
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id + '_coordinator')
         hass.data[DOMAIN].pop(entry.entry_id + '_backup_select', None)
+        hass.data[DOMAIN].pop(entry.entry_id + '_energy_kwh', None)
+        hass.data[DOMAIN].pop(entry.entry_id + '_energy_wh', None)
         hass.services.async_remove(DOMAIN, "set_setting")
         hass.services.async_remove(DOMAIN, "backup_settings")
         hass.services.async_remove(DOMAIN, "restore_settings")
