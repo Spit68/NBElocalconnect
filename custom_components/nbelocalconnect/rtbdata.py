@@ -13,12 +13,10 @@ class RTBData:
         self.set(data)
     
     def set(self, data):
-        """Update data dictionary from list of key=value strings."""
+        """Update data dictionary. Preserve last known value for keys missing in this poll."""
         if not data:
             _LOGGER.warning("set() called with empty data")
             return
-        
-        self.data = {}
         
         for item in data:
             if '=' in item:
@@ -26,7 +24,7 @@ class RTBData:
                 key, value = item.split('=', 1)
                 self.data[key] = value
             else:
-                # Format: just "key" (no value) - skip eller gem som None
+                # Format: just "key" (no value) - skip
                 _LOGGER.debug(f"Skipping keyless item: {item}")
         
         _LOGGER.debug(f"RTBData updated with {len(self.data)} keys")

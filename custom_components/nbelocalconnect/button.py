@@ -22,6 +22,9 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         NBERestoreButton(coordinator, hass, f"{entry_id}_nbe_restore"),
         NBEDeleteBackupButton(coordinator, hass, f"{entry_id}_nbe_delete_backup"),
         NBEResetEnergyButton(coordinator, hass, f"{entry_id}_nbe_reset_energy"),
+        RTBSignalButton(coordinator, proxy, "Reset Ignitions", "settings/ignition/clear_ignitions", f"{entry_id}_nbe_clear_ignitions", "1"),
+        RTBSignalButton(coordinator, proxy, "Start Auger 6 min. Weighing Test", "settings/auger/forced_run", f"{entry_id}_nbe_forced_auger_run", "360"),
+        RTBSignalButton(coordinator, proxy, "Stop Auger 6 min. Weighing Test", "settings/auger/forced_run", f"{entry_id}_nbe_stop_auger_run", "0"),
     ])
 
 
@@ -64,7 +67,7 @@ class RTBSignalButton(CoordinatorEntity, ButtonEntity):
 
 
 class NBEBackupButton(CoordinatorEntity, ButtonEntity):
-    """Knap der starter en backup af boiler settings."""
+    """Button that triggers a backup of boiler settings."""
 
     def __init__(self, coordinator, hass, uid):
         super().__init__(coordinator)
@@ -92,7 +95,7 @@ class NBEBackupButton(CoordinatorEntity, ButtonEntity):
 
 
 class NBERestoreButton(CoordinatorEntity, ButtonEntity):
-    """Knap der gendanner boiler settings fra valgt backup fil."""
+    """Button that restores boiler settings from selected backup file."""
 
     def __init__(self, coordinator, hass, uid):
         super().__init__(coordinator)

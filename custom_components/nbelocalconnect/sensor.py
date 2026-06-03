@@ -20,6 +20,34 @@ from logging import getLogger
 
 _LOGGER = getLogger(__name__)
 
+def _normalize_translation_key(value):
+    """Normalize NBE numeric message/state values for translation lookup."""
+    if value is None:
+        return None
+    key = str(value).strip()
+    # Some values may arrive as "5.0"; translation JSON normally uses "5".
+    try:
+        number = float(key)
+        if number.is_integer():
+            key = str(int(number))
+    except (ValueError, TypeError):
+        pass
+    return key
+
+
+def _translate_boiler_value(translations, section, value):
+    """Translate a boiler value using boiler_messages JSON, fallback to raw value."""
+    key = _normalize_translation_key(value)
+    if key is None:
+        return None
+
+    section_data = translations.get(section, {})
+    if not isinstance(section_data, dict):
+        return key
+
+    return section_data.get(key, key)
+
+
 
 def get_sensor_config(key):
     """Returner (unit, device_class, state_class) baseret på key navn."""
@@ -116,14 +144,14 @@ async def async_setup_entry(hass, entry, async_add_entities):
     # CONSUMPTION HISTORY SENSORS
     sensors.extend([
         RTBConsumptionHistorySensor(coordinator, 'Consumption Hourly', 'consumption_data/total_hours', f'{entry_id}_v2_consumption_hourly', 24),
-        RTBConsumptionHistorySensor(coordinator, 'Consumption Daily', 'consumption_data/total_days', f'{entry_id}_v2_consumption_daily', 31),
+        RTBDailyConsumptionDBSensor(coordinator, 'Consumption Daily', 'pellets', f'{entry_id}_v2_consumption_daily'),
         RTBConsumptionHistorySensor(coordinator, 'Consumption Monthly', 'consumption_data/total_months', f'{entry_id}_v2_consumption_monthly', 12),
-        RTBConsumptionHistorySensor(coordinator, 'Consumption Yearly', 'consumption_data/total_years', f'{entry_id}_v2_consumption_yearly', 12),
-        
+        RTBStokerCloudYearlySensor(coordinator, 'Consumption Yearly', 'pellets', f'{entry_id}_v2_consumption_yearly'),
+
         RTBConsumptionHistorySensor(coordinator, 'DHW Consumption Hourly', 'consumption_data/dhw_hours', f'{entry_id}_v2_dhw_hourly', 24),
-        RTBConsumptionHistorySensor(coordinator, 'DHW Consumption Daily', 'consumption_data/dhw_days', f'{entry_id}_v2_dhw_daily', 31),
+        RTBDailyConsumptionDBSensor(coordinator, 'DHW Consumption Daily', 'dhw', f'{entry_id}_v2_dhw_daily'),
         RTBConsumptionHistorySensor(coordinator, 'DHW Consumption Monthly', 'consumption_data/dhw_months', f'{entry_id}_v2_dhw_monthly', 12),
-        RTBConsumptionHistorySensor(coordinator, 'DHW Consumption Yearly', 'consumption_data/dhw_years', f'{entry_id}_v2_dhw_yearly', 12),
+        RTBStokerCloudYearlySensor(coordinator, 'DHW Consumption Yearly', 'dhw', f'{entry_id}_v2_dhw_yearly'),
     ])
     
     # Keys der allerede er lavet sensorer for
@@ -141,33 +169,40 @@ async def async_setup_entry(hass, entry, async_add_entities):
         'consumption_data/dhw_days',
         'consumption_data/dhw_months',
         'consumption_data/dhw_years',
+        'operating_data/NA',
     }
     
-    # Blacklist: Skip disse fra advanced_data (duplikerer operating_data)
+    # Blacklist: Skip these from advanced_data (duplicates of operating_data)
     advanced_data_blacklist = {
         'advanced_data/boiler_power_kw',      # Duplikerer operating_data/power_kw
         'advanced_data/boiler_power_actual',  # Duplikerer operating_data/power_pct
     }
     
     # ========================================================================
-    # DYNAMISK SCANNING - FIND ALLE KEYS
+    # DYNAMIC SCANNING - FIND ALL KEYS
     # ========================================================================
     _LOGGER.info("Scanning rtbdata for all available keys...")
     
     all_keys = coordinator.rtbdata.get_all_keys()
     _LOGGER.info(f"Found {len(all_keys)} total keys in rtbdata")
     
-    # Opret sensor for hver key
+    # Create sensor for each key
     for key in all_keys:
-        # Skip allerede håndterede
+        # Skip already handled keys
         if key in skip_keys:
             continue
         
-        # Skip blacklistede advanced_data duplikater
+        # Skip blacklisted advanced_data duplicates
         if key in advanced_data_blacklist:
             _LOGGER.debug(f"Skipping advanced_data duplicate: {key}")
             continue
         
+        # Skip settings (håndteres af number platform)
+        # Exception: settings that are read-only sensors
+        SETTINGS_AS_SENSORS = {'settings/ignition/ignition_number'}
+        if key.startswith('settings/') and key not in SETTINGS_AS_SENSORS:
+            continue
+
         # Skip binære timer data
         if any(day in key for day in ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday', 'allweek']):
             _LOGGER.debug(f"Skipping binary timer data: {key}")
@@ -243,6 +278,11 @@ async def async_setup_entry(hass, entry, async_add_entities):
     # STATE COUNTDOWN SENSOR
     sensors.append(
         RTBCountdownSensor(coordinator, f'{entry_id}_v2_state_countdown')
+    )
+
+    # AUGER WEIGHING TEST COUNTDOWN
+    sensors.append(
+        RTBAugerCountdownSensor(coordinator, f'{entry_id}_v2_auger_countdown')
     )
 
     # ENERGY SENSORS
@@ -327,14 +367,12 @@ class RTBDynamicSensor(CoordinatorEntity, SensorEntity):
     @property
     def entity_category(self):
         """Return entity category."""
-        # Advanced data → DIAGNOSTIC (read-only)
-        if self.client_key.startswith('advanced_data/'):
+        # operating_data/time og sw_version keys → DIAGNOSTIC
+        if self.client_key == 'operating_data/time':
             return EntityCategory.DIAGNOSTIC
-        
-        # Settings → None (writable, havner under Sensorer)
-        if self.client_key.startswith('settings/'):
-            return None
-        
+        if 'sw_version' in self.client_key.lower() or 'version' in self.client_key.lower():
+            return EntityCategory.DIAGNOSTIC
+
         return None
 
     @property
@@ -348,7 +386,31 @@ class RTBDynamicSensor(CoordinatorEntity, SensorEntity):
     
         if self.client_key.endswith('/NA') or '/na' in self.client_key.lower():
             return False
-    
+
+        disabled_by_default = [
+            'operating_data/air_flow',
+            'operating_data/flow1',
+            'operating_data/flow2',
+            'operating_data/flow3',
+            'operating_data/flow4',
+            'operating_data/forward_ref',
+            'operating_data/output_ext',
+            'operating_data/output_wireless',
+            'operating_data/contact2',
+            'operating_data/dl_progress',
+            'operating_data/pressure',
+            'operating_data/corr_low',
+            'operating_data/corr_medium',
+            'operating_data/corr_high',
+            'operating_data/distance',
+            'operating_data/feed_low',
+            'operating_data/feed_medium',
+            'operating_data/feed_high',
+            'operating_data/t7_temp',
+        ]
+        if self.client_key in disabled_by_default:
+            return False
+
         if self.client_key.startswith('operating_data/'):
             return True
     
@@ -370,8 +432,105 @@ class RTBDynamicSensor(CoordinatorEntity, SensorEntity):
 ]
         if self.client_key in important_settings:
             return True
+
+        # Settings exposed as read-only sensors are always enabled
+        if self.client_key in {'settings/ignition/ignition_number'}:
+            return True
     
         return False
+
+
+class RTBAugerCountdownSensor(CoordinatorEntity, SensorEntity):
+    """Real-time countdown sensor for the auger weighing test (settings/auger/forced_run)."""
+
+    def __init__(self, coordinator, uid):
+        super().__init__(coordinator)
+        self.uid = uid
+        self._last_value = 0
+        self._last_update = None
+        self._unsub_timer = None
+
+    async def async_added_to_hass(self):
+        """Start 1-second timer when added to HA."""
+        await super().async_added_to_hass()
+        self._unsub_timer = async_track_time_interval(
+            self.hass,
+            self._tick,
+            timedelta(seconds=1)
+        )
+
+    async def async_will_remove_from_hass(self):
+        """Cancel timer when removed."""
+        if self._unsub_timer:
+            self._unsub_timer()
+            self._unsub_timer = None
+
+    @callback
+    def _tick(self, now=None):
+        """Called every second to update countdown display."""
+        self.async_write_ha_state()
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Sync countdown to boiler value on each poll."""
+        raw = self.coordinator.rtbdata.get('settings/auger/forced_run')
+        try:
+            val = int(float(raw)) if raw else 0
+        except (ValueError, TypeError):
+            val = 0
+
+        if val > 0:
+            self._last_value = val
+            self._last_update = datetime.now()
+        else:
+            self._last_value = 0
+            self._last_update = None
+
+        self.async_write_ha_state()
+
+    @property
+    def name(self):
+        return "Auger Weighing Test Timer"
+
+    @property
+    def unique_id(self):
+        return self.uid
+
+    @property
+    def state(self):
+        """Return current countdown value in seconds."""
+        if not self._last_update or self._last_value <= 0:
+            return 0
+        elapsed = (datetime.now() - self._last_update).total_seconds()
+        remaining = max(0, self._last_value - int(elapsed))
+        return remaining
+
+    @property
+    def unit_of_measurement(self):
+        return "s"
+
+    @property
+    def entity_registry_enabled_default(self):
+        return True
+
+    @property
+    def extra_state_attributes(self):
+        remaining = self.state
+        if remaining > 0:
+            minutes = remaining // 60
+            seconds = remaining % 60
+            formatted = f"{minutes}:{seconds:02d}"
+        else:
+            formatted = "0:00"
+        return {
+            "formatted": formatted,
+            "datapoint_path": "settings/auger/forced_run",
+            "writable": False,
+        }
+
+    @property
+    def device_info(self):
+        return {"identifiers": {(DOMAIN, self.coordinator.entry_id)}}
 
 class RTBBinarySensor(CoordinatorEntity, BinarySensorEntity):
     """Binary sensor."""
@@ -476,7 +635,7 @@ class RTBConsumptionHistorySensor(CoordinatorEntity, SensorEntity):
     
     @property
     def state_class(self):
-        return SensorStateClass.MEASUREMENT
+        return None
         
     @property
     def extra_state_attributes(self):
@@ -524,7 +683,7 @@ class RTBConsumptionHistorySensor(CoordinatorEntity, SensorEntity):
             
             # DAILY: Reverse per måned
             elif 'days' in self.client_key or 'daily' in self.client_key:
-                values = values[:30]
+                values = values[:31]
                 current_day = datetime.now().day
                 this_month = values[:current_day]
                 last_month = values[current_day:]
@@ -600,7 +759,7 @@ class RTBInfoSensor(CoordinatorEntity, SensorEntity):
 
     @property
     def entity_category(self):
-        return EntityCategory.DIAGNOSTIC
+        return None
 
     @property
     def entity_registry_enabled_default(self):
@@ -629,15 +788,23 @@ class RTBAlarmMsgSensor(CoordinatorEntity, SensorEntity):
         data = self.coordinator.rtbdata.get('operating_data/state')
         if data is None:
             return None
-        translations = self.coordinator.translations.get("boiler_state", {})
-        return translations.get(str(data), str(data))
+        return _translate_boiler_value(
+            self.coordinator.translations,
+            "boiler_state",
+            data,
+        )
 
     @property
     def extra_state_attributes(self):
+        raw_state = self.coordinator.rtbdata.get('operating_data/state')
+        translations = self.coordinator.translations.get("boiler_state", {})
         return {
-            "state_number": self.coordinator.rtbdata.get('operating_data/state'),
+            "state_number": raw_state,
+            "translation_key": _normalize_translation_key(raw_state),
+            "translation_count": len(translations) if isinstance(translations, dict) else 0,
             "datapoint_path": "operating_data/state",
             "writable": False,
+            "alarm_history": self.coordinator.get_translated_alarm_history(),
         }
 
     @property
@@ -672,15 +839,23 @@ class RTBSubstateMsgSensor(CoordinatorEntity, SensorEntity):
     def state(self):
         """Return translated substate text."""
         substate = self.coordinator.rtbdata.get('operating_data/substate')
-        if not substate or str(substate) == '0':
+        key = _normalize_translation_key(substate)
+        if not key or key == '0':
             return ""
-        translations = self.coordinator.translations.get("boiler_substate", {})
-        return translations.get(str(substate), str(substate))
+        return _translate_boiler_value(
+            self.coordinator.translations,
+            "boiler_substate",
+            substate,
+        )
 
     @property
     def extra_state_attributes(self):
+        raw_substate = self.coordinator.rtbdata.get('operating_data/substate')
+        translations = self.coordinator.translations.get("boiler_substate", {})
         return {
-            "substate_number": self.coordinator.rtbdata.get('operating_data/substate'),
+            "substate_number": raw_substate,
+            "translation_key": _normalize_translation_key(raw_substate),
+            "translation_count": len(translations) if isinstance(translations, dict) else 0,
             "datapoint_path": "operating_data/substate",
             "writable": False,
         }
@@ -719,18 +894,27 @@ class RTBInfoMsgSensor(CoordinatorEntity, SensorEntity):
         msgs = getattr(self.coordinator, 'info_messages', [])
         if not msgs:
             return ""
-        translations = self.coordinator.translations.get("boiler_info", {})
         parts = []
         for num in msgs:
-            text = translations.get(str(num), str(num))
+            text = _translate_boiler_value(
+                self.coordinator.translations,
+                "boiler_info",
+                num,
+            )
             if text:
                 parts.append(text)
         return " | ".join(parts) if parts else ""
 
     @property
     def extra_state_attributes(self):
+        translations = self.coordinator.translations.get("boiler_info", {})
         return {
             "info_numbers": getattr(self.coordinator, 'info_messages', []),
+            "translation_keys": [
+                _normalize_translation_key(num)
+                for num in getattr(self.coordinator, 'info_messages', [])
+            ],
+            "translation_count": len(translations) if isinstance(translations, dict) else 0,
             "datapoint_path": "info/",
             "writable": False,
         }
@@ -950,4 +1134,138 @@ class RTBEnergySensor(CoordinatorEntity, SensorEntity, RestoreEntity):
 
     @property
     def entity_registry_enabled_default(self):
+        return True
+
+class RTBStokerCloudYearlySensor(CoordinatorEntity, SensorEntity):
+    """Yearly consumption sensor populated from StokerCloud data."""
+
+    def __init__(self, coordinator, name, data_key, uid):
+        super().__init__(coordinator)
+        self.sensorname = name
+        self.data_key = data_key  # 'pellets' or 'dhw'
+        self.uid = uid
+
+    @property
+    def name(self):
+        return self.sensorname
+
+    @property
+    def unique_id(self):
+        return self.uid
+
+    def _get_values(self):
+        if self.data_key == 'pellets':
+            return getattr(self.coordinator, 'stokercloud_pellets', [])
+        return getattr(self.coordinator, 'stokercloud_dhw', [])
+
+    @property
+    def state(self):
+        values = self._get_values()
+        return round(values[0], 3) if values else None
+
+    @property
+    def unit_of_measurement(self):
+        return "kg"
+
+    @property
+    def device_class(self):
+        return SensorDeviceClass.WEIGHT
+
+    @property
+    def state_class(self):
+        return SensorStateClass.MEASUREMENT
+
+    @property
+    def extra_state_attributes(self):
+        values = self._get_values()
+        if not values:
+            return {"values": [], "count": 0}
+        return {
+            "values": [round(v, 3) for v in values],
+            "count": len(values),
+            "total": round(sum(values), 2),
+            "average": round(sum(values) / len(values), 2),
+            "max": round(max(values), 2),
+            "min": round(min(values), 2),
+        }
+
+    @property
+    def device_info(self):
+        return {"identifiers": {(DOMAIN, self.coordinator.entry_id)}}
+
+    @property
+    def entity_category(self):
+        return None
+
+    @property
+    def entity_registry_enabled_default(self):
+        if self.data_key == 'dhw':
+            return False
+        return True
+
+class RTBDailyConsumptionDBSensor(CoordinatorEntity, SensorEntity):
+    """Daily consumption sensor der læser fra HA DB via koordinator hukommelse."""
+
+    def __init__(self, coordinator, name, data_key, uid):
+        super().__init__(coordinator)
+        self.sensorname = name
+        self.data_key = data_key  # 'pellets' or 'dhw'
+        self.uid = uid
+
+    @property
+    def name(self):
+        return self.sensorname
+
+    @property
+    def unique_id(self):
+        return self.uid
+
+    def _get_values(self):
+        if self.data_key == 'pellets':
+            return getattr(self.coordinator, 'stokercloud_daily_pellets', [])
+        return getattr(self.coordinator, 'stokercloud_daily_dhw', [])
+
+    @property
+    def state(self):
+        values = self._get_values()
+        return round(values[0], 3) if values else None
+
+    @property
+    def unit_of_measurement(self):
+        return "kg"
+
+    @property
+    def device_class(self):
+        return SensorDeviceClass.WEIGHT
+
+    @property
+    def state_class(self):
+        return SensorStateClass.MEASUREMENT
+
+    @property
+    def extra_state_attributes(self):
+        values = self._get_values()
+        if not values:
+            return {"values": [], "count": 0}
+        return {
+            "values": [round(v, 3) for v in values],
+            "count": len(values),
+            "total": round(sum(values), 2),
+            "average": round(sum(values) / len(values), 2),
+            "max": round(max(values), 2),
+            "min": round(min(values), 2),
+        }
+
+    @property
+    def device_info(self):
+        return {"identifiers": {(DOMAIN, self.coordinator.entry_id)}}
+
+    @property
+    def entity_category(self):
+        return None
+
+    @property
+    def entity_registry_enabled_default(self):
+        if self.data_key == 'dhw':
+            return False
         return True

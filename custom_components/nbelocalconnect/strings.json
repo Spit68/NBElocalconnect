@@ -4,9 +4,16 @@
       "user": {
         "description": "Enter the same Serial/password. You can find the credentials on the boiler controller.",
         "data": {
-          "serial": "Seriel no:",
+          "serial": "Serial no:",
           "password": "Password:",
-          "ip_address": "Controller IP (leave empty for auto discovery)"
+          "ip_address": "Controller IP (leave empty for auto discovery)",
+          "stokercloud_enabled": "Import yearly consumption data from StokerCloud"
+        }
+      },
+      "stokercloud": {
+        "description": "Enter your StokerCloud username to import historical yearly consumption data.",
+        "data": {
+          "stokercloud_username": "StokerCloud Username"
         }
       }
     }
