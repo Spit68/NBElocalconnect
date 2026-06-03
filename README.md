@@ -97,7 +97,7 @@ Due to a firmware bug in V7, V10 and V13 controllers, yearly consumption data st
 
 ### Step 4: Enter Configuration
 
-![Configuration Window](add_integration/setup.png)
+![Configuration Window](add_integration/setup_.png)
 
 **Required Fields:**
 - **Serial***: Your boiler controller serial number (found on controller label)
