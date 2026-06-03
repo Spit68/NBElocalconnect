@@ -195,7 +195,7 @@ cards:
 
 ### Consumption History for last 24 hours
 
-![Consumption History](add_integration/hours_consumption.png)
+![Consumption History](add_integration/hours_consumption_.png)
 
 Where `xxxxx` is your boiler serial number.
 
@@ -234,7 +234,7 @@ yaxis:
 The history is stored in Home Assistant's statistics database and can be kept for years.
 On first setup, up to 31 days of historical data is automatically imported from the boiler.
 
-![Consumption History](add_integration/daily_consumption_db.png)
+![Consumption History](add_integration/daily_consumption_db_.png)
 
 Where `xxxxx` is your boiler serial number.
 
@@ -285,7 +285,7 @@ series:
 
 ### Consumption History for last 12 months
 
-![Consumption History](add_integration/monthly_consumption.png)
+![Consumption History](add_integration/monthly_consumption_.png)
 
 Where `xxxxx` is your boiler serial number.
 
@@ -330,7 +330,7 @@ After that, the integration keeps the yearly consumption data up to date locally
 
 The data is stored in Home Assistant's statistics database and can be kept for years.
 
-![Consumption History](add_integration/yearly_consumption_db.png)
+![Consumption History](add_integration/yearly_consumption_db_.png)
 
 Where `xxxxx` is your boiler serial number.
 
