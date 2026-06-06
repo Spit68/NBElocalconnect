@@ -383,7 +383,7 @@ apex_config:
     x:
       format: yyyy
 series:
-  - entity: sensor.nbe_boiler_12844_consumption_yearly
+  - entity: sensor.nbe_boiler_xxxxx_consumption_yearly
     type: column
     name: kg/year
     data_generator: |
