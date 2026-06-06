@@ -252,7 +252,7 @@ apex_config:
     x:
       format: dd MMMM yyyy
 series:
-  - entity: sensor.nbe_boiler_12844_consumption_daily
+  - entity: sensor.nbe_boiler_xxxxx_consumption_daily
     type: column
     name: kg
     data_generator: |
