@@ -238,8 +238,41 @@ On first setup, up to 31 days of historical data is automatically imported from 
 
 Where `xxxxx` is your boiler serial number.
 
+**Lovelace Card Example from entity (with apexcharts-card)**
+```yaml
+type: custom:apexcharts-card
+header:
+  show: true
+  title: Daily consumption
+graph_span: 31d
+apex_config:
+  annotations:
+    position: front
+  tooltip:
+    x:
+      format: dd MMMM yyyy
+series:
+  - entity: sensor.nbe_boiler_12844_consumption_daily
+    type: column
+    name: kg
+    data_generator: |
+      const values = entity.attributes.values;
+      if (!values || values.length < 31) return [];
+      const result = [];
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      for (let i = 0; i < 30; i++) {
+        const date = new Date(today);
+        date.setDate(today.getDate() - i);
+        result.push([date.getTime(), parseFloat(values[i])]);
+      }
+      return result;
+yaxis:
+  - min: 0
+    decimals: 1
+```
 
-**Lovelace Card Example (with apexcharts-card)**
+**Lovelace Card Example from Home assistant database (with apexcharts-card)**
 ```yaml
 type: custom:apexcharts-card
 graph_span: 31d
