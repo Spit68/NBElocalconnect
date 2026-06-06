@@ -261,7 +261,7 @@ series:
       const result = [];
       const today = new Date();
       today.setHours(0, 0, 0, 0);
-      for (let i = 0; i < 30; i++) {
+      for (let i = 0; i < 31; i++) {
         const date = new Date(today);
         date.setDate(today.getDate() - i);
         result.push([date.getTime(), parseFloat(values[i])]);
