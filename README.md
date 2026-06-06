@@ -367,7 +367,41 @@ The data is stored in Home Assistant's statistics database and can be kept for y
 
 Where `xxxxx` is your boiler serial number.
 
-**Lovelace Card Example (with apexcharts-card)**
+**Lovelace Card Example from entity (with apexcharts-card)**
+```yaml
+type: custom:apexcharts-card
+header:
+  show: true
+  title: Yearly consumption
+graph_span: 12y
+apex_config:
+  annotations:
+    position: front
+  chart:
+    height: 300px
+  tooltip:
+    x:
+      format: yyyy
+series:
+  - entity: sensor.nbe_boiler_12844_consumption_yearly
+    type: column
+    name: kg/year
+    data_generator: |
+      const values = entity.attributes.values;
+      if (!values || values.length < 12) return [];
+      const result = [];
+      const now = new Date();
+      for (let i = 0; i < 12; i++) {
+        const date = new Date(now.getFullYear() - i, 0, 1);
+        result.push([date.getTime(), parseFloat(values[i])]);
+      }
+      return result;
+yaxis:
+  - min: 0
+    decimals: 0
+```
+
+**Lovelace Card Example from home assistant database (with apexcharts-card)**
 ```yaml
 type: custom:apexcharts-card
 graph_span: 12y
