@@ -225,6 +225,7 @@ series:
       return result;
 yaxis:
   - min: 0
+    max: 0.1
     decimals: 2
 ```
 
