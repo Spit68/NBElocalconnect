@@ -719,6 +719,9 @@ async def async_setup_entry(hass, entry):
                 "dhw": result["dhw"],
                 "timestamps": result["timestamps"]
             })
+            # Importer daglige data fra fyret og overskriv de sidste 31 dage i DB
+            logger.info("Importerer daglige data fra fyret (overskriver seneste 31 dage i DB)...")
+            await async_import_daily_from_boiler(hass, coordinator)
             # Sæt helper2 = helper1 så delta logik ikke tæller dagens forbrug dobbelt
             h1_pellets = _read_daily_from_rtbdata(coordinator.rtbdata, "consumption_data/total_days")
             h1_dhw = _read_daily_from_rtbdata(coordinator.rtbdata, "consumption_data/dhw_days")
@@ -1322,6 +1325,21 @@ class RTBDataCoordinator(DataUpdateCoordinator):
                             self.stokercloud_daily_timestamps = [_new_ts] + self.stokercloud_daily_timestamps[:30]
                         if self.stokercloud_daily_dhw:
                             self.stokercloud_daily_dhw = [0.0] + self.stokercloud_daily_dhw[:30]
+                        # Skriv altid 0.0 til DB for den nye dag og reset helper2
+                        # så hver dag starter frisk uanset om fyret kører eller ej
+                        await async_inject_daily_statistics(
+                            self.hass, self.statistic_identifier, "pellets_daily",
+                            _new_ts, 0.0
+                        )
+                        if _is_dhw_entity_enabled(self.hass, self.entry_id):
+                            await async_inject_daily_statistics(
+                                self.hass, self.statistic_identifier, "dhw_daily",
+                                _new_ts, 0.0
+                            )
+                        self._helper2_pellets = 0.0
+                        self._helper2_dhw = 0.0
+                        await self._helper2_store.async_save({"helper2_pellets": 0.0, "helper2_dhw": 0.0})
+                        logger.info("Dag-skift: 0.0 skrevet til DB, helper2 reset til 0.0")
                     self._last_known_day = _current_day
 
                     if self._helper2_pellets is None:
