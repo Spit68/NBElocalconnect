@@ -1188,7 +1188,39 @@ class RTBDataCoordinator(DataUpdateCoordinator):
             all_data = []
 
             # ================================================================
-            # 1. OPERATING DATA
+            # 1. DAG-SKIFT DETEKTION - FØRST, før poll af consumption data
+            # så fyret allerede har skiftet slot når vi læser data
+            # ================================================================
+            from zoneinfo import ZoneInfo as _ZI
+            _tz = _ZI(self.hass.config.time_zone)
+            _current_day = datetime.datetime.now(tz=_tz).day
+            if self._last_known_day is not None and _current_day != self._last_known_day:
+                logger.info(f"Dag-skift detekteret: {self._last_known_day} → {_current_day}")
+                _new_ts = _today_ts_ms(self.hass)
+                if self.stokercloud_daily_pellets:
+                    self.stokercloud_daily_pellets = [0.0] + self.stokercloud_daily_pellets[:30]
+                    self.stokercloud_daily_timestamps = [_new_ts] + self.stokercloud_daily_timestamps[:30]
+                if self.stokercloud_daily_dhw:
+                    self.stokercloud_daily_dhw = [0.0] + self.stokercloud_daily_dhw[:30]
+                # Skriv altid 0.0 til DB for den nye dag og reset helper2
+                # så hver dag starter frisk uanset om fyret kører eller ej
+                await async_inject_daily_statistics(
+                    self.hass, self.statistic_identifier, "pellets_daily",
+                    _new_ts, 0.0
+                )
+                if _is_dhw_entity_enabled(self.hass, self.entry_id):
+                    await async_inject_daily_statistics(
+                        self.hass, self.statistic_identifier, "dhw_daily",
+                        _new_ts, 0.0
+                    )
+                self._helper2_pellets = 0.0
+                self._helper2_dhw = 0.0
+                await self._helper2_store.async_save({"helper2_pellets": 0.0, "helper2_dhw": 0.0})
+                logger.info("Dag-skift: 0.0 skrevet til DB, helper2 reset til 0.0")
+            self._last_known_day = _current_day
+
+            # ================================================================
+            # 2. OPERATING DATA
             # ================================================================
             logger.debug("Fetching operating_data/...")
             try:
@@ -1200,7 +1232,7 @@ class RTBDataCoordinator(DataUpdateCoordinator):
                 logger.debug(f"  ✗ Error fetching operating_data: {e}")
 
             # ================================================================
-            # 2. ADVANCED DATA
+            # 3. ADVANCED DATA
             # ================================================================
             logger.debug("Fetching advanced_data/...")
             try:
@@ -1212,7 +1244,7 @@ class RTBDataCoordinator(DataUpdateCoordinator):
                 logger.debug(f"  ✗ Error fetching advanced_data: {e}")
 
             # ================================================================
-            # 3. CONSUMPTION DATA
+            # 4. CONSUMPTION DATA - frisk poll efter dag-skift tjek
             # ================================================================
             logger.debug("Fetching consumption_data individually...")
             for key in [
@@ -1233,7 +1265,7 @@ class RTBDataCoordinator(DataUpdateCoordinator):
                     logger.debug(f"  ✗ No data for {key}")
 
             # ================================================================
-            # 4. SETTINGS ENDPOINTS
+            # 5. SETTINGS ENDPOINTS
             # ================================================================
             for endpoint in [
                 'settings/boiler/',
@@ -1302,7 +1334,7 @@ class RTBDataCoordinator(DataUpdateCoordinator):
                     return None
                 try:
                     parts = [float(v.strip()) for v in str(raw).split("=")[-1].split(",") if v.strip()]
-                    current_d = datetime.datetime.now().day - 1
+                    current_d = datetime.datetime.now(tz=_tz).day - 1
                     return parts[current_d] if len(parts) > current_d else None
                 except (ValueError, IndexError):
                     return None
@@ -1313,35 +1345,6 @@ class RTBDataCoordinator(DataUpdateCoordinator):
                 stat_id = _yearly_statistic_id(self.statistic_identifier, "pellets_yearly")
                 helper1 = _read_daily_field("consumption_data/total_days")
                 if helper1 is not None:
-                    # Dag-skift detektion
-                    from zoneinfo import ZoneInfo as _ZI
-                    _tz = _ZI(self.hass.config.time_zone)
-                    _current_day = datetime.datetime.now(tz=_tz).day
-                    if self._last_known_day is not None and _current_day != self._last_known_day:
-                        logger.info(f"Dag-skift detekteret: {self._last_known_day} → {_current_day}")
-                        _new_ts = _today_ts_ms(self.hass)
-                        if self.stokercloud_daily_pellets:
-                            self.stokercloud_daily_pellets = [0.0] + self.stokercloud_daily_pellets[:30]
-                            self.stokercloud_daily_timestamps = [_new_ts] + self.stokercloud_daily_timestamps[:30]
-                        if self.stokercloud_daily_dhw:
-                            self.stokercloud_daily_dhw = [0.0] + self.stokercloud_daily_dhw[:30]
-                        # Skriv altid 0.0 til DB for den nye dag og reset helper2
-                        # så hver dag starter frisk uanset om fyret kører eller ej
-                        await async_inject_daily_statistics(
-                            self.hass, self.statistic_identifier, "pellets_daily",
-                            _new_ts, 0.0
-                        )
-                        if _is_dhw_entity_enabled(self.hass, self.entry_id):
-                            await async_inject_daily_statistics(
-                                self.hass, self.statistic_identifier, "dhw_daily",
-                                _new_ts, 0.0
-                            )
-                        self._helper2_pellets = 0.0
-                        self._helper2_dhw = 0.0
-                        await self._helper2_store.async_save({"helper2_pellets": 0.0, "helper2_dhw": 0.0})
-                        logger.info("Dag-skift: 0.0 skrevet til DB, helper2 reset til 0.0")
-                    self._last_known_day = _current_day
-
                     if self._helper2_pellets is None:
                         self._helper2_pellets = 0.0
                     if self._helper2_pellets > helper1:
