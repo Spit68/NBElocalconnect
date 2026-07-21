@@ -30,6 +30,19 @@ STOKERCLOUD_CONSUMPTION = STOKERCLOUD_BASE + "/v2/dataout2/getconsumption.php"
 # Boiler states that indicate an alarm condition
 ALARM_STATES = {8, 11, 12, 13, 15, 16, 17, 19, 20, 26, 27, 29, 30, 31, 36, 37, 38, 39, 41, 42, 44, 45}
 ALARM_HISTORY_MAX = 25
+SETTINGS_LOG_MAX = 1000
+DRIFT_LOG_MAX = 1000
+
+
+def _settings_key_to_name(key: str) -> str:
+    """Friendly name for a settings key path, e.g. 'settings/boiler/temp' -> 'Boiler Temp'."""
+    if not key:
+        return str(key)
+    parts = key.replace('settings/', '').split('/')
+    if len(parts) == 2:
+        category, item = parts
+        return f"{category.replace('_', ' ').title()} {item.replace('_', ' ').title()}"
+    return key.replace('settings/', '').replace('_', ' ').replace('/', ' ').title()
 
 from .rtbdata import RTBData
 from .protocol import Proxy
@@ -624,7 +637,10 @@ async def async_setup_entry(hass, entry):
     serialnumber = entry.data.get('serial', None)
     scan_interval = entry.data.get(CONF_SCAN_INTERVAL, 30)
 
-    if serialnumber:
+    # Use broadcast discovery only when no fixed IP address is configured.
+    # If both IP and serial are configured, keep the fixed IP and let protocol.py
+    # try direct IP first with optional serial fallback.
+    if serialnumber and not ip_address:
         ip_address = '<broadcast>'
 
     logger.info(f"Creating proxy connection to {ip_address}:{port}...")
@@ -671,6 +687,8 @@ async def async_setup_entry(hass, entry):
 
     # Fetch initial data
     await coordinator.async_load_alarm_history()
+    await coordinator.async_load_settings_log()
+    await coordinator.async_load_drift_log()
     await coordinator.async_config_entry_first_refresh()
 
     # Store coordinator
@@ -805,9 +823,17 @@ async def async_setup_entry(hass, entry):
             with proxy_lock:
                 return proxy.set(k, v)
 
+        # Fyret forventer heltal uden decimal ("10" ikke "10.0").
+        # Decimalværdier (fx 10.5) sendes stadig som decimaltal.
         try:
-            result = await hass.async_add_executor_job(locked_set, key, str(value))
-            logger.info(f"Successfully set {key} = {value}")
+            fvalue = float(value)
+            str_value = str(int(fvalue)) if fvalue == int(fvalue) else str(fvalue)
+        except (ValueError, TypeError):
+            str_value = str(value)
+
+        try:
+            result = await hass.async_add_executor_job(locked_set, key, str_value)
+            logger.info(f"Successfully set {key} = {str_value}")
         except Exception as e:
             logger.error(f"Error setting {key}: {e}")
             raise
@@ -1142,6 +1168,16 @@ class RTBDataCoordinator(DataUpdateCoordinator):
         self._alarm_store = Store(hass, 1, f"{DOMAIN}_alarm_history_{entry_id}")
         self._helper2_store = Store(hass, 1, f"{DOMAIN}_helper2_{entry_id}")
         self._history_store = Store(hass, 1, f"{DOMAIN}_yearly_history_{entry_id}")
+        # Settings log (diff of all settings/* keys between polls)
+        self._settings_log = []
+        self._last_poll_settings_snapshot = None
+        self._settings_baseline_set = False
+        self._settings_log_store = Store(hass, 1, f"{DOMAIN}_settings_log_{entry_id}")
+        # Drift log (operating_data/state transitions between polls)
+        self._drift_log = []
+        self._last_drift_state = None
+        self._drift_baseline_set = False
+        self._drift_log_store = Store(hass, 1, f"{DOMAIN}_drift_log_{entry_id}")
 
         update_interval = datetime.timedelta(seconds=scan_interval)
         super().__init__(hass, logger, name=DOMAIN, update_interval=update_interval)
@@ -1151,7 +1187,73 @@ class RTBDataCoordinator(DataUpdateCoordinator):
         data = await self._alarm_store.async_load()
         if data and isinstance(data, list):
             self._alarm_history = data[-ALARM_HISTORY_MAX:]
+            # Genskab last_alarm_state fra seneste entry, så en igangværende
+            # alarm ikke bliver logget som "ny" igen efter en HA-genstart.
+            if self._alarm_history:
+                self._last_alarm_state = self._alarm_history[-1].get("code")
             logger.debug(f"Loaded {len(self._alarm_history)} alarm history entries")
+
+    async def async_load_settings_log(self):
+        """Load settings change log from persistent storage."""
+        data = await self._settings_log_store.async_load()
+        if data and isinstance(data, list):
+            self._settings_log = data[-SETTINGS_LOG_MAX:]
+            logger.debug(f"Loaded {len(self._settings_log)} settings log entries")
+
+    async def async_load_drift_log(self):
+        """Load drift/operation log from persistent storage."""
+        data = await self._drift_log_store.async_load()
+        if data and isinstance(data, list):
+            self._drift_log = data[-DRIFT_LOG_MAX:]
+            logger.debug(f"Loaded {len(self._drift_log)} drift log entries")
+
+    def get_translated_settings_log(self) -> list:
+        """Return settings change log with friendly key names, newest first."""
+        result = []
+        for entry in reversed(self._settings_log):
+            key = entry.get("key")
+            result.append({
+                "key": key,
+                "name": _settings_key_to_name(key),
+                "from": entry.get("from"),
+                "to": entry.get("to"),
+                "timestamp": entry.get("timestamp"),
+            })
+        return result
+
+    def get_settings_log_summary(self) -> str | None:
+        """Return the most recent settings change as a readable string."""
+        if not self._settings_log:
+            return None
+        entry = self._settings_log[-1]
+        name = _settings_key_to_name(entry.get("key"))
+        return f"{name}: {entry.get('from')} -> {entry.get('to')}"
+
+    def get_translated_drift_log(self) -> list:
+        """Return state-transition log with translated state names, newest first."""
+        result = []
+        state_translations = self.translations.get("boiler_state", {})
+        for entry in reversed(self._drift_log):
+            from_code = entry.get("from")
+            to_code = entry.get("to")
+            result.append({
+                "from_code": from_code,
+                "from": state_translations.get(str(from_code), f"State {from_code}"),
+                "to_code": to_code,
+                "to": state_translations.get(str(to_code), f"State {to_code}"),
+                "timestamp": entry.get("timestamp"),
+            })
+        return result
+
+    def get_drift_log_summary(self) -> str | None:
+        """Return the most recent state transition as a readable string."""
+        if not self._drift_log:
+            return None
+        entry = self._drift_log[-1]
+        state_translations = self.translations.get("boiler_state", {})
+        from_txt = state_translations.get(str(entry.get("from")), f"State {entry.get('from')}")
+        to_txt = state_translations.get(str(entry.get("to")), f"State {entry.get('to')}")
+        return f"{from_txt} -> {to_txt}"
 
     async def async_load_helper2(self):
         """Load helper2 values from persistent storage."""
@@ -1193,7 +1295,8 @@ class RTBDataCoordinator(DataUpdateCoordinator):
             # ================================================================
             from zoneinfo import ZoneInfo as _ZI
             _tz = _ZI(self.hass.config.time_zone)
-            _current_day = datetime.datetime.now(tz=_tz).day
+            _poll_start = datetime.datetime.now(tz=_tz)
+            _current_day = _poll_start.day
             if self._last_known_day is not None and _current_day != self._last_known_day:
                 logger.info(f"Dag-skift detekteret: {self._last_known_day} → {_current_day}")
                 _new_ts = _today_ts_ms(self.hass)
@@ -1322,19 +1425,87 @@ class RTBDataCoordinator(DataUpdateCoordinator):
             self._last_alarm_state = current_state
 
             # ================================================================
+            # Settings log: diff alle settings/* keys mod forrige poll
+            # ================================================================
+            current_settings_snapshot = {
+                k: v for k, v in self.rtbdata.data.items() if k.startswith('settings/')
+            }
+
+            if self._settings_baseline_set:
+                settings_changed = False
+                for key, new_val in current_settings_snapshot.items():
+                    old_val = self._last_poll_settings_snapshot.get(key)
+                    if old_val != new_val:
+                        self._settings_log.append({
+                            "key": key,
+                            "from": old_val,
+                            "to": new_val,
+                            "timestamp": datetime.datetime.now().isoformat(timespec='seconds'),
+                        })
+                        settings_changed = True
+                if settings_changed:
+                    if len(self._settings_log) > SETTINGS_LOG_MAX:
+                        self._settings_log = self._settings_log[-SETTINGS_LOG_MAX:]
+                    await self._settings_log_store.async_save(self._settings_log)
+                    logger.info("Settings log: change(s) detected and saved")
+            else:
+                self._settings_baseline_set = True
+                logger.debug("Settings log: baseline captured, no diff on first poll")
+
+            self._last_poll_settings_snapshot = current_settings_snapshot
+
+            # ================================================================
+            # Drift log: state-overgange (operating_data/state) mod forrige poll
+            # ================================================================
+            if self._drift_baseline_set:
+                if current_state != self._last_drift_state:
+                    self._drift_log.append({
+                        "from": self._last_drift_state,
+                        "to": current_state,
+                        "timestamp": datetime.datetime.now().isoformat(timespec='seconds'),
+                    })
+                    if len(self._drift_log) > DRIFT_LOG_MAX:
+                        self._drift_log = self._drift_log[-DRIFT_LOG_MAX:]
+                    await self._drift_log_store.async_save(self._drift_log)
+                    logger.info(f"Drift log: state {self._last_drift_state} -> {current_state}")
+            else:
+                self._drift_baseline_set = True
+                logger.debug("Drift log: baseline captured, no diff on first poll")
+
+            self._last_drift_state = current_state
+
+            # Hvis poll'en starter før midnat og slutter efter midnat, kan helper2
+            # høre til gårsdagens slot mens helper1 læses fra dagens nye slot.
+            # Spring derfor delta over i denne ene poll og lad næste poll starte rent.
+            _poll_end = datetime.datetime.now(tz=_tz)
+            if _poll_end.date() != _poll_start.date():
+                logger.warning(
+                    "Poll krydsede midnat (%s → %s). Springer delta over for at undgå forkert dag-slot.",
+                    _poll_start.isoformat(timespec="seconds"),
+                    _poll_end.isoformat(timespec="seconds"),
+                )
+                return all_data
+
+            # ================================================================
             # DELTA LOGIC: Two-helper method with HA DB
             # helper1 = total_days[current_hour] (felt 1, altid frisk fra fyret)
             # if helper2 > helper1: new period, reset helper2
             # if helper1 > helper2: sum from DB + delta → skriv til DB → opdater entity
             # helper2 = helper1
             # ================================================================
+            _delta_now = datetime.datetime.now(tz=_tz).time()
+            _skip_delta = (
+                _delta_now >= datetime.time(23, 59, 50)
+                or _delta_now <= datetime.time(0, 0, 10)
+            )
+
             def _read_daily_field(key: str) -> float | None:
                 raw = self.rtbdata.get(key)
                 if not raw:
                     return None
                 try:
                     parts = [float(v.strip()) for v in str(raw).split("=")[-1].split(",") if v.strip()]
-                    current_d = datetime.datetime.now(tz=_tz).day - 1
+                    current_d = _current_day - 1
                     return parts[current_d] if len(parts) > current_d else None
                 except (ValueError, IndexError):
                     return None
@@ -1349,7 +1520,7 @@ class RTBDataCoordinator(DataUpdateCoordinator):
                         self._helper2_pellets = 0.0
                     if self._helper2_pellets > helper1:
                         self._helper2_pellets = 0.0
-                    if helper1 > self._helper2_pellets:
+                    if helper1 > self._helper2_pellets and not _skip_delta:
                         delta = helper1 - self._helper2_pellets
                         db_sum = await _get_year_state_from_db(self.hass, stat_id)
                         new_sum = round(db_sum + delta, 3)
@@ -1381,7 +1552,7 @@ class RTBDataCoordinator(DataUpdateCoordinator):
                         self._helper2_dhw = 0.0
                     if self._helper2_dhw > helper1_dhw:
                         self._helper2_dhw = 0.0
-                    if helper1_dhw > self._helper2_dhw:
+                    if helper1_dhw > self._helper2_dhw and not _skip_delta:
                         delta_dhw = helper1_dhw - self._helper2_dhw
                         db_sum_dhw = await _get_year_state_from_db(self.hass, stat_id_dhw)
                         new_sum_dhw = round(db_sum_dhw + delta_dhw, 3)

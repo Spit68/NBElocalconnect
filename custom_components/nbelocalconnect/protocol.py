@@ -32,8 +32,6 @@ class Proxy:
                 if p==9999:
                     print ('No free port found')
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        if addr == '<broadcast>':
-            s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         s.settimeout(7)
         self.s = s
         request = Request_frame()
@@ -44,9 +42,30 @@ class Proxy:
         if serialnumber:
             request.controllerid = serialnumber
         request.sequencenumber = randrange(0,100)
-        self.s.sendto(request.encode() , (addr, port))
-        data, server = self.s.recvfrom(4096)
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 0)
+
+        data = None
+        server = None
+        last_error = None
+
+        # Prefer direct IP when provided. This works across routed VLANs.
+        # If direct IP fails and a serial number is provided, fall back to broadcast discovery.
+        if addr and addr != '<broadcast>':
+            try:
+                self.s.sendto(request.encode(), (addr, port))
+                data, server = self.s.recvfrom(4096)
+            except (socket.timeout, socket.error, OSError) as e:
+                last_error = e
+
+        if data is None:
+            if not serialnumber and addr != '<broadcast>':
+                raise last_error if last_error else TimeoutError('No response from boiler')
+            try:
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+                self.s.sendto(request.encode(), ('<broadcast>', port))
+                data, server = self.s.recvfrom(4096)
+            finally:
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 0)
+
         self.addr = server
 
         self.response.decode(data)

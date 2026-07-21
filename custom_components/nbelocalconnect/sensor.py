@@ -270,6 +270,16 @@ async def async_setup_entry(hass, entry, async_add_entities):
         RTBSubstateMsgSensor(coordinator, f'{entry_id}_v2_substate_msg')
     )
 
+    # SETTINGS LOG SENSOR (diff af settings/* mellem polls)
+    sensors.append(
+        RTBSettingsLogSensor(coordinator, f'{entry_id}_v2_settings_log')
+    )
+
+    # DRIFT LOG SENSOR (state-overgange mellem polls)
+    sensors.append(
+        RTBDriftLogSensor(coordinator, f'{entry_id}_v2_drift_log')
+    )
+
     # INFO MSG SENSOR (tekst fra boiler_info oversættelse)
     sensors.append(
         RTBInfoMsgSensor(coordinator, f'{entry_id}_v2_info_msg')
@@ -805,6 +815,94 @@ class RTBAlarmMsgSensor(CoordinatorEntity, SensorEntity):
             "datapoint_path": "operating_data/state",
             "writable": False,
             "alarm_history": self.coordinator.get_translated_alarm_history(),
+        }
+
+    @property
+    def device_info(self):
+        return {"identifiers": {(DOMAIN, self.coordinator.entry_id)}}
+
+    @property
+    def entity_category(self):
+        return None
+
+    @property
+    def entity_registry_enabled_default(self):
+        return True
+
+
+class RTBSettingsLogSensor(CoordinatorEntity, SensorEntity):
+    _attr_has_entity_name = False
+    """Sensor showing a log of settings changes detected between polls."""
+
+    def __init__(self, coordinator, uid):
+        super().__init__(coordinator)
+        self.uid = uid
+
+    @property
+    def name(self):
+        return "Settings Log"
+
+    @property
+    def unique_id(self):
+        return self.uid
+
+    @property
+    def icon(self):
+        return "mdi:file-document-edit-outline"
+
+    @property
+    def state(self):
+        summary = self.coordinator.get_settings_log_summary()
+        return summary if summary is not None else "No changes logged yet"
+
+    @property
+    def extra_state_attributes(self):
+        return {
+            "settings_log": self.coordinator.get_translated_settings_log(),
+        }
+
+    @property
+    def device_info(self):
+        return {"identifiers": {(DOMAIN, self.coordinator.entry_id)}}
+
+    @property
+    def entity_category(self):
+        return None
+
+    @property
+    def entity_registry_enabled_default(self):
+        return True
+
+
+class RTBDriftLogSensor(CoordinatorEntity, SensorEntity):
+    _attr_has_entity_name = False
+    """Sensor showing a log of boiler state transitions detected between polls."""
+
+    def __init__(self, coordinator, uid):
+        super().__init__(coordinator)
+        self.uid = uid
+
+    @property
+    def name(self):
+        return "Drift Log"
+
+    @property
+    def unique_id(self):
+        return self.uid
+
+    @property
+    def icon(self):
+        return "mdi:history"
+
+    @property
+    def state(self):
+        summary = self.coordinator.get_drift_log_summary()
+        return summary if summary is not None else "No changes logged yet"
+
+    @property
+    def extra_state_attributes(self):
+        return {
+            "drift_log": self.coordinator.get_translated_drift_log(),
         }
 
     @property

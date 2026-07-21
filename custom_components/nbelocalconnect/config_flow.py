@@ -30,14 +30,17 @@ class NbeConnectConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 unique_id = user_input.get("serial") or user_input.get("ip_address") or "nbe_boiler"
                 await self.async_set_unique_id(unique_id)
                 self._abort_if_unique_id_configured()
-                if not user_input.get("serial"):
-                    user_input["serial"] = None
+                # Gem tomme optional tekstfelter som tom streng, ikke None.
+                # Voluptuous/TextSelector forventer str ved reconfigure/options.
+                user_input["serial"] = (user_input.get("serial") or "").strip()
+                user_input["ip_address"] = (user_input.get("ip_address") or "").strip()
+                user_input["stokercloud_username"] = (user_input.get("stokercloud_username") or "").strip()
                 return self.async_create_entry(title="NBE Local Connect", data=user_input)
 
         ui = user_input or {}
         STEP_USER_DATA_SCHEMA = vol.Schema(
             {
-                vol.Required("serial", default=ui.get("serial", "")): TextSelector(
+                vol.Optional("serial", default=ui.get("serial", "")): TextSelector(
                     TextSelectorConfig(type=TextSelectorType.TEXT, autocomplete="serial")
                 ),
                 vol.Required("password", default=ui.get("password", "")): TextSelector(
@@ -80,8 +83,22 @@ class NbeConnectOptionsFlowHandler(config_entries.OptionsFlow):
                 errors["stokercloud_username"] = "missing_stokercloud_username"
 
             if not errors:
-                if not user_input.get("serial"):
-                    user_input["serial"] = None
+                # Gem tomme optional tekstfelter som tom streng, ikke None.
+                # Ellers kan reconfigure/options give "expected str".
+                user_input["serial"] = (user_input.get("serial") or "").strip()
+                user_input["ip_address"] = (user_input.get("ip_address") or "").strip()
+                user_input["stokercloud_username"] = (user_input.get("stokercloud_username") or "").strip()
+
+                # Bevar stokercloud_imported flaget som det er, medmindre
+                # brugernavnet rent faktisk ændres - så nulstilles det,
+                # så en ny bruger trigger et nyt engangs-import.
+                old_username = (self.config_entry.data.get("stokercloud_username") or "").strip()
+                new_username = user_input["stokercloud_username"]
+                if new_username != old_username:
+                    user_input["stokercloud_imported"] = False
+                else:
+                    user_input["stokercloud_imported"] = self.config_entry.data.get("stokercloud_imported", False)
+
                 self.hass.config_entries.async_update_entry(
                     self.config_entry, data=user_input
                 )
@@ -92,17 +109,17 @@ class NbeConnectOptionsFlowHandler(config_entries.OptionsFlow):
 
         OPTIONS_SCHEMA = vol.Schema(
             {
-                vol.Required("serial", default=current_data.get("serial")): TextSelector(
+                vol.Optional("serial", default=current_data.get("serial") or ""): TextSelector(
                     TextSelectorConfig(type=TextSelectorType.TEXT, autocomplete="serial")
                 ),
                 vol.Required("password", default=current_data.get("password", "")): TextSelector(
                     TextSelectorConfig(type=TextSelectorType.PASSWORD, autocomplete="current-password")
                 ),
-                vol.Optional("ip_address", default=current_data.get("ip_address", "")): TextSelector(
+                vol.Optional("ip_address", default=current_data.get("ip_address") or ""): TextSelector(
                     TextSelectorConfig(type=TextSelectorType.TEXT, autocomplete="")
                 ),
                 vol.Optional("stokercloud_enabled", default=current_data.get("stokercloud_enabled", False)): BooleanSelector(),
-                vol.Optional("stokercloud_username", default=current_data.get("stokercloud_username", "")): TextSelector(
+                vol.Optional("stokercloud_username", default=current_data.get("stokercloud_username") or ""): TextSelector(
                     TextSelectorConfig(type=TextSelectorType.TEXT, autocomplete="username")
                 ),
             }

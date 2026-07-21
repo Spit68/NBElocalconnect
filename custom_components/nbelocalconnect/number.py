@@ -105,6 +105,10 @@ def get_number_config(key):
     if 'liter' in key_lower or 'flow_' in key_lower:
         return "L", 0.0, 100.0, 0.1
 
+    # Boiler diff_over / diff_under: heltal, ikke decimal
+    if 'diff_over' in key_lower or 'diff_under' in key_lower:
+        return "°C", 0.0, 50.0, 1.0
+
     # PID gain / correction values
     if any(x in key_lower for x in ['gain', 'corr_', 'diff', 'addition', 'calibration']):
         return None, -100.0, 100.0, 0.01
@@ -301,9 +305,13 @@ class RTBSettingsNumber(CoordinatorEntity, NumberEntity):
     def native_value(self):
         raw = self.coordinator.rtbdata.get(self.client_key)
         try:
-            return float(raw)
+            fval = float(raw)
         except (TypeError, ValueError):
             return None
+        # Vis som heltal i UI når step er et helt tal (fx 1.0), ikke "10.0"
+        if self._step == int(self._step):
+            return int(fval)
+        return fval
 
     @property
     def native_min_value(self):
