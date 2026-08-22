@@ -10,7 +10,8 @@ class RTBData:
     def __init__(self, data):
         """Initialize with data list."""
         self.data = {}
-        self.set(data)
+        if data:
+            self.set(data)
     
     def set(self, data):
         """Update data dictionary. Preserve last known value for keys missing in this poll."""
