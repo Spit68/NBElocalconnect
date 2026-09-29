@@ -30,8 +30,6 @@ class NbeConnectConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 unique_id = user_input.get("serial") or user_input.get("ip_address") or "nbe_boiler"
                 await self.async_set_unique_id(unique_id)
                 self._abort_if_unique_id_configured()
-                # Gem tomme optional tekstfelter som tom streng, ikke None.
-                # Voluptuous/TextSelector forventer str ved reconfigure/options.
                 user_input["serial"] = (user_input.get("serial") or "").strip()
                 user_input["ip_address"] = (user_input.get("ip_address") or "").strip()
                 user_input["stokercloud_username"] = (user_input.get("stokercloud_username") or "").strip()
@@ -83,15 +81,10 @@ class NbeConnectOptionsFlowHandler(config_entries.OptionsFlow):
                 errors["stokercloud_username"] = "missing_stokercloud_username"
 
             if not errors:
-                # Gem tomme optional tekstfelter som tom streng, ikke None.
-                # Ellers kan reconfigure/options give "expected str".
                 user_input["serial"] = (user_input.get("serial") or "").strip()
                 user_input["ip_address"] = (user_input.get("ip_address") or "").strip()
                 user_input["stokercloud_username"] = (user_input.get("stokercloud_username") or "").strip()
 
-                # Bevar stokercloud_imported flaget som det er, medmindre
-                # brugernavnet rent faktisk ændres - så nulstilles det,
-                # så en ny bruger trigger et nyt engangs-import.
                 old_username = (self.config_entry.data.get("stokercloud_username") or "").strip()
                 new_username = user_input["stokercloud_username"]
                 if new_username != old_username:

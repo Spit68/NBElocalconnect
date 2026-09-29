@@ -335,16 +335,10 @@ class RTBDynamicSensor(CoordinatorEntity, SensorEntity):
     @property
     def state(self):
         """Return state."""
-        data = self.coordinator.rtbdata.get(self.client_key)
+        if self.client_key == 'operating_data/content':
+            return self.coordinator.rtbdata.get('settings/hopper/content')
 
-        # content skal ganges med 10 (kg)
-        if 'content' in self.client_key and 'min_content' not in self.client_key and 'operating_data' in self.client_key:
-            try:
-                return float(data) * 10 if data else None
-            except:
-                return data
-        
-        return data
+        return self.coordinator.rtbdata.get(self.client_key)
     
     @property
     def unit_of_measurement(self):

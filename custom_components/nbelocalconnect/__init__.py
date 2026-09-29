@@ -27,7 +27,6 @@ from .const import DOMAIN, NBE_BACKUP_DIR
 STOKERCLOUD_BASE = "https://www.stokercloud.dk"
 STOKERCLOUD_LOGIN = STOKERCLOUD_BASE + "/v2/dataout2/login.php"
 STOKERCLOUD_CONSUMPTION = STOKERCLOUD_BASE + "/v2/dataout2/getconsumption.php"
-# Boiler states that indicate an alarm condition
 ALARM_STATES = {8, 11, 12, 13, 15, 16, 17, 19, 20, 26, 27, 29, 30, 31, 36, 37, 38, 39, 41, 42, 44, 45}
 ALARM_HISTORY_MAX = 25
 SETTINGS_LOG_MAX = 1000
@@ -50,8 +49,6 @@ from logging import getLogger
 
 logger = getLogger(__name__)
 
-# Alle settings der gemmes og gendannes ved backup/restore.
-# Format: (kategori, key) — svarer til settings/<kategori>/<key>
 BACKUP_SETTINGS = [
     # boiler
     ("boiler", "temp"),
@@ -198,7 +195,7 @@ async def async_fetch_stokercloud(hass, username: str) -> dict:
     Hvert element i raw data er [timestamp_ms, kg_value]."""
     session = async_get_clientsession(hass)
     try:
-        # Login
+
         async with session.get(STOKERCLOUD_LOGIN, params={"user": username}, timeout=15) as resp:
             if resp.status != 200:
                 logger.error(f"StokerCloud login error: HTTP {resp.status}")
@@ -212,18 +209,17 @@ async def async_fetch_stokercloud(hass, username: str) -> dict:
 
         logger.info("StokerCloud login OK, fetching consumption...")
 
-        # Hent forbrug
+
         async with session.get(STOKERCLOUD_CONSUMPTION, params={"token": token, "years": 12}, timeout=15) as resp:
             if resp.status != 200:
                 logger.error(f"StokerCloud consumption error: HTTP {resp.status}")
                 return None
             raw = await resp.json(content_type=None)
 
-        # Format: array af objekter med label og data=[[timestamp_ms, kg], ...]
-        # label "graph_consume" = pellets, "graph_consume setup_vvb" = DHW
+
         pellets = []
         dhw = []
-        timestamps = []  # Unix ms, nyeste foerst
+        timestamps = []
         for item in (raw if isinstance(raw, list) else []):
             label = item.get("label", "")
             entries = item.get("data", [])
@@ -269,7 +265,6 @@ async def _get_year_state_from_db(hass, statistic_id: str) -> float:
             entries = result[statistic_id]
             if entries:
                 entry = entries[0]
-                # Tjek at entry er fra indeværende år i HA's lokale tidszone
                 entry_start = entry.get("start")
                 if entry_start is not None:
                     from zoneinfo import ZoneInfo
@@ -408,7 +403,6 @@ async def async_import_daily_from_boiler(hass, coordinator):
     def _build_timestamps(n):
         return [int((today_midnight - datetime.timedelta(days=i)).timestamp() * 1000) for i in range(n)]
 
-    # Pellets
     raw_pellets = coordinator.rtbdata.get("consumption_data/total_days")
     if raw_pellets:
         sorted_pellets = _sort_daily_for_import(raw_pellets, current_day, last_month_days)
@@ -418,7 +412,6 @@ async def async_import_daily_from_boiler(hass, coordinator):
             coordinator.stokercloud_daily_timestamps = _build_timestamps(len(sorted_pellets))
             logger.info(f"Daglig pellets import: {len(sorted_pellets)} dage importeret")
 
-    # DHW
     raw_dhw = coordinator.rtbdata.get("consumption_data/dhw_days")
     if raw_dhw:
         sorted_dhw = _sort_daily_for_import(raw_dhw, current_day, last_month_days)
@@ -480,7 +473,6 @@ async def async_load_daily_from_db(hass, coordinator):
         logger.debug(f"Kunne ikke loade daglig DHW fra DB: {e}")
         coordinator.stokercloud_daily_dhw = []
 
-    # Sæt last known day
     from zoneinfo import ZoneInfo
     tz = ZoneInfo(hass.config.time_zone)
     coordinator._last_known_day = datetime.datetime.now(tz=tz).day
@@ -525,7 +517,6 @@ async def async_inject_yearly_statistics(hass, entry_id: str, stat_suffix: str,
         name=f"NBE {stat_suffix.replace('_', ' ').title()}",
     )
 
-    # Sorter aeldste foerst til kumulativ sum
     pairs = list(reversed(list(zip(timestamps_ms, values))))
     stats = []
     cumsum = 0.0
@@ -564,26 +555,21 @@ async def async_load_yearly_from_db(hass, coordinator):
     now_local = datetime.datetime.now(tz=tz)
     current_year = now_local.year
 
-    # Byg 12 års timestamps (nyeste først) i HA's lokale tidszone
     timestamps = []
     for i in range(12):
         year_start = datetime.datetime(current_year - i, 1, 1, tzinfo=tz)
         timestamps.append(int(year_start.timestamp() * 1000))
 
-    # Prøv at loade historiske år fra Store (gemt ved StokerCloud import)
     history_data = await coordinator._history_store.async_load()
 
-    # Pellets
     stat_id = _yearly_statistic_id(stat_identifier, "pellets_yearly")
     pellets_sum = await _get_year_state_from_db(hass, stat_id)
 
     if history_data and isinstance(history_data, dict) and len(history_data.get("pellets", [])) >= 12:
-        # Brug historiske år fra Store, opdater kun indeværende år fra DB
         pellets_values = list(history_data["pellets"])
         pellets_values[0] = pellets_sum
         logger.info(f"Yearly pellets: historiske år loadet fra Store, indeværende år = {pellets_sum} kg")
     else:
-        # Ingen historik i Store - start fra 0 for alle år
         pellets_values = [0.0] * 12
         pellets_values[0] = pellets_sum
         logger.info(f"Yearly pellets initialiseret: {pellets_sum} kg indeværende år, ingen historisk data")
@@ -616,7 +602,6 @@ async def async_setup_entry(hass, entry):
     """Set up NBE from a config entry."""
     logger.info("Setting up NBELocalConnect integration...")
 
-    # Ryd op i orphaned entities fra tidligere installationer.
     from homeassistant.helpers import entity_registry as er
     ent_reg = er.async_get(hass)
     active_entry_ids = {e.entry_id for e in hass.config_entries.async_entries(DOMAIN)}
@@ -630,16 +615,12 @@ async def async_setup_entry(hass, entry):
     if orphaned:
         logger.info(f"Cleaned up {len(orphaned)} orphaned entities from previous installs")
 
-    # Get configuration
     ip_address = entry.data.get('ip_address')
     password = entry.data.get(CONF_PASSWORD)
     port = entry.data.get('port', 8483)
     serialnumber = entry.data.get('serial', None)
     scan_interval = entry.data.get(CONF_SCAN_INTERVAL, 30)
 
-    # Use broadcast discovery only when no fixed IP address is configured.
-    # If both IP and serial are configured, keep the fixed IP and let protocol.py
-    # try direct IP first with optional serial fallback.
     if serialnumber and not ip_address:
         ip_address = '<broadcast>'
 
@@ -657,7 +638,6 @@ async def async_setup_entry(hass, entry):
         logger.error(f"❌ Failed to create proxy connection: {e}", exc_info=True)
         raise ConfigEntryNotReady(f"Cannot connect to boiler: {e}") from e
 
-    # Create device
     device_registry = dr.async_get(hass)
     device_identifier = proxy.serial if hasattr(proxy, 'serial') and proxy.serial else ip_address
     device_name = f"NBE Boiler {device_identifier}"
@@ -669,10 +649,8 @@ async def async_setup_entry(hass, entry):
         model="Pellet Boiler",
     )
 
-    # threading.Lock — beskytter socketen mod samtidige kald fra coordinator og services
     proxy_lock = threading.Lock()
 
-    # Create coordinator
     coordinator = RTBDataCoordinator(
         hass,
         entry.entry_id,
@@ -682,27 +660,21 @@ async def async_setup_entry(hass, entry):
         device_identifier
     )
 
-    # Load boiler message translations before entities are created.
     coordinator.translations = await async_load_translations(hass, hass.config.language)
 
-    # Fetch initial data
     await coordinator.async_load_alarm_history()
     await coordinator.async_load_settings_log()
     await coordinator.async_load_drift_log()
     await coordinator.async_config_entry_first_refresh()
 
-    # Store coordinator
     hass.data[DOMAIN][entry.entry_id + '_coordinator'] = coordinator
 
-    # Setup platforms
     await hass.config_entries.async_forward_entry_setups(entry, ["sensor", "button", "number", "select", "switch"])
 
-    # StokerCloud import / yearly data initialisering
     stokercloud_enabled = entry.data.get("stokercloud_enabled", False)
     stokercloud_username = entry.data.get("stokercloud_username", "").strip()
 
     if stokercloud_enabled and stokercloud_username:
-        # Sæt toggle til OFF med det samme uanset hvad der sker - i både data og options
         new_data = dict(entry.data)
         new_data["stokercloud_enabled"] = False
         new_options = dict(entry.options) if entry.options else {}
@@ -718,29 +690,23 @@ async def async_setup_entry(hass, entry):
             coordinator.stokercloud_timestamps = result["timestamps"]
             coordinator._helper2_pellets = None
             coordinator._helper2_dhw = None
-            # Importer altid pellets til DB
             await async_inject_yearly_statistics(
                 hass, coordinator.statistic_identifier, "pellets_yearly",
                 result["timestamps"], result["pellets"]
             )
-            # Importer altid DHW til DB - uanset om entity er aktiveret
-            # Så er data klar når brugeren aktiverer DHW entity
             coordinator.stokercloud_dhw = result["dhw"]
             await async_inject_yearly_statistics(
                 hass, coordinator.statistic_identifier, "dhw_yearly",
                 result["timestamps"], result["dhw"]
             )
             logger.info(f"StokerCloud: {len(result['pellets'])} pellet years, {len(result['dhw'])} DHW years importeret")
-            # Gem historiske år til Store så de overlever genstarter
             await coordinator._history_store.async_save({
                 "pellets": result["pellets"],
                 "dhw": result["dhw"],
                 "timestamps": result["timestamps"]
             })
-            # Importer daglige data fra fyret og overskriv de sidste 31 dage i DB
             logger.info("Importerer daglige data fra fyret (overskriver seneste 31 dage i DB)...")
             await async_import_daily_from_boiler(hass, coordinator)
-            # Sæt helper2 = helper1 så delta logik ikke tæller dagens forbrug dobbelt
             h1_pellets = _read_daily_from_rtbdata(coordinator.rtbdata, "consumption_data/total_days")
             h1_dhw = _read_daily_from_rtbdata(coordinator.rtbdata, "consumption_data/dhw_days")
             await coordinator._helper2_store.async_save({"helper2_pellets": h1_pellets, "helper2_dhw": h1_dhw})
@@ -751,11 +717,9 @@ async def async_setup_entry(hass, entry):
             await async_load_yearly_from_db(hass, coordinator)
             await coordinator.async_load_helper2()
     else:
-        # Toggle OFF: læs indeværende års data fra HA DB (eller start fra 0 hvis ingen data)
         await async_load_yearly_from_db(hass, coordinator)
         await coordinator.async_load_helper2()
 
-    # Daglig data: tjek om der er data i DB - importer fra fyret hvis ikke
     stat_id_daily_check = _yearly_statistic_id(coordinator.statistic_identifier, "pellets_daily")
     recorder_instance_check = get_instance(hass)
 
@@ -772,11 +736,8 @@ async def async_setup_entry(hass, entry):
         logger.info("Daglig statistik fundet i DB - loader...")
         await async_load_daily_from_db(hass, coordinator)
 
-    # Opdater alle entities med det samme - ingen ventetid på næste poll
     coordinator.async_update_listeners()
 
-
-    # Listen for language changes
     async def handle_language_change(event):
         """Reload translations when HA language changes."""
         new_language = hass.config.language
@@ -788,17 +749,13 @@ async def async_setup_entry(hass, entry):
         hass.bus.async_listen(EVENT_CORE_CONFIG_UPDATE, handle_language_change)
     )
 
-    # ----------------------------------------------------------------
-    # Service: set_setting
-    # Uses same proxy_lock as coordinator - no socket conflicts
-    # ----------------------------------------------------------------
+
     async def handle_set_setting(call):
         """Handle set_setting service call."""
         entity_id = call.data.get("entity_id")
         key = call.data.get("key")
         value = call.data.get("value")
 
-        # Hvis entity_id givet, find datapoint fra entity attributes
         if entity_id and not key:
             state = hass.states.get(entity_id)
             if state and state.attributes:
@@ -823,8 +780,6 @@ async def async_setup_entry(hass, entry):
             with proxy_lock:
                 return proxy.set(k, v)
 
-        # Fyret forventer heltal uden decimal ("10" ikke "10.0").
-        # Decimalværdier (fx 10.5) sendes stadig som decimaltal.
         try:
             fvalue = float(value)
             str_value = str(int(fvalue)) if fvalue == int(fvalue) else str(fvalue)
@@ -840,16 +795,10 @@ async def async_setup_entry(hass, entry):
 
     hass.services.async_register(DOMAIN, "set_setting", handle_set_setting)
 
-    # ----------------------------------------------------------------
-    # Service: backup_settings
-    # Saves all settings to a JSON file in /config/nbe_backup/
-    # Valgfri parameter: name — bruges som præfiks i filnavnet
-    # ----------------------------------------------------------------
     async def handle_backup_settings(call):
         """Save all boiler settings to backup file."""
         timestamp = datetime.datetime.now().strftime("%d-%m-%Y-%H-%M")
 
-        # Find highest backup number and create dir - run in executor
         def get_next_num_and_makedirs():
             os.makedirs(NBE_BACKUP_DIR, exist_ok=True)
             next_num = 1
@@ -866,8 +815,6 @@ async def async_setup_entry(hass, entry):
         filename = f"backup{next_num}_{timestamp}.json"
         filepath = os.path.join(NBE_BACKUP_DIR, filename)
 
-        # Fetch all settings directly from boiler
-        # Use all unique categories from BACKUP_SETTINGS
         categories = list(dict.fromkeys(cat for cat, key in BACKUP_SETTINGS))
 
         def locked_get_all():
@@ -910,7 +857,6 @@ async def async_setup_entry(hass, entry):
         await hass.async_add_executor_job(write_backup)
         logger.info(f"✅ Backup saved: {filepath} ({len(backup_data['settings'])} settings)")
 
-        # Update select entity with the new file
         select_key = entry.entry_id + '_backup_select'
         if select_key in hass.data[DOMAIN]:
             await hass.data[DOMAIN][select_key].async_refresh_options()
@@ -922,10 +868,6 @@ async def async_setup_entry(hass, entry):
 
     hass.services.async_register(DOMAIN, "backup_settings", handle_backup_settings)
 
-    # ----------------------------------------------------------------
-    # Service: restore_settings
-    # Restores settings from the file selected in select entity
-    # ----------------------------------------------------------------
     async def handle_restore_settings(call):
         """Restore boiler settings from selected backup file."""
         select_key = entry.entry_id + '_backup_select'
@@ -980,7 +922,6 @@ async def async_setup_entry(hass, entry):
                         logger.info(f"Restore retry succeeded for {path} (attempt {attempt + 1})")
                     break
                 except OSError as e:
-                    # Timeout - retry after short pause
                     if attempt < max_retries - 1:
                         logger.warning(f"Restore timeout for {path}, retrying ({attempt + 1}/{max_retries - 1})...")
                         await asyncio.sleep(1)
@@ -988,12 +929,10 @@ async def async_setup_entry(hass, entry):
                         logger.error(f"Restore error for {path}: {e}")
                         errors += 1
                 except Exception as e:
-                    # Other errors (index out of range etc) - no point retrying
                     logger.error(f"Restore error for {path}: {e}")
                     errors += 1
                     break
 
-            # Update progress notification every 10 settings
             if (ok + errors) % 10 == 0:
                 await hass.services.async_call("persistent_notification", "create", {
                     "message": f"Restoring... {ok + errors} of {total} settings done.",
@@ -1003,21 +942,15 @@ async def async_setup_entry(hass, entry):
 
         logger.info(f"✅ Restore complete from {filename}: {ok} ok, {errors} errors")
 
-        # Send final notification before coordinator refresh
         msg = f"NBE restore from **{filename}** complete.\n✅ {ok} settings restored."
         if errors:
             msg += f"\n❌ {errors} settings failed - check log."
         await hass.services.async_call("persistent_notification", "create", {"message": msg, "title": "NBE Restore", "notification_id": "nbe_restore"})
 
-        # Refresh coordinator data
         await coordinator.async_request_refresh()
 
     hass.services.async_register(DOMAIN, "restore_settings", handle_restore_settings)
 
-    # ----------------------------------------------------------------
-    # Service: delete_backup
-    # Deletes the file currently selected in the select entity
-    # ----------------------------------------------------------------
     async def handle_delete_backup(call):
         """Delete selected backup file."""
         select_key = entry.entry_id + '_backup_select'
@@ -1047,7 +980,6 @@ async def async_setup_entry(hass, entry):
             raise HomeAssistantError(f"Backup file not found: {filepath}")
         logger.info(f"Deleted backup file: {filename}")
 
-        # Refresh select entity
         if select_key in hass.data[DOMAIN]:
             await hass.data[DOMAIN][select_key].async_refresh_options()
 
@@ -1057,10 +989,6 @@ async def async_setup_entry(hass, entry):
             "notification_id": "nbe_delete"
         })
 
-    # ----------------------------------------------------------------
-    # Service: import_stokercloud
-    # Henter forbrugsdata fra StokerCloud og opdaterer coordinator
-    # ----------------------------------------------------------------
     async def handle_import_stokercloud(call):
         """Hent og gem StokerCloud forbrugsdata."""
         username = entry.data.get("stokercloud_username", "").strip()
@@ -1151,29 +1079,25 @@ class RTBDataCoordinator(DataUpdateCoordinator):
         self.info_messages = []
         self.translations = {"boiler_state": {}, "boiler_substate": {}, "boiler_info": {}}
         self.proxy_lock = proxy_lock
-        self.last_raw_data = []  # Bruges af backup service
-        self.stokercloud_pellets = []    # Importeret fra StokerCloud
-        self.stokercloud_dhw = []        # Importeret fra StokerCloud
-        self.stokercloud_timestamps = [] # Unix ms, nyeste foerst (fra StokerCloud)
-        self.stokercloud_daily_pellets = []    # Daglig pellets fra HA DB
-        self.stokercloud_daily_dhw = []        # Daglig DHW fra HA DB
-        self.stokercloud_daily_timestamps = [] # Unix ms, nyeste foerst (daglig)
-        # To-helper delta tracking
-        self._helper2_pellets = None     # Previous poll hourly value[0]
-        self._helper2_dhw = None         # Previous poll dhw_hours[0]
-        self._last_known_day = None      # Dag-skift detektion
-        # Alarm history
+        self.last_raw_data = []
+        self.stokercloud_pellets = [] 
+        self.stokercloud_dhw = []
+        self.stokercloud_timestamps = []
+        self.stokercloud_daily_pellets = []
+        self.stokercloud_daily_dhw = []
+        self.stokercloud_daily_timestamps = []
+        self._helper2_pellets = None
+        self._helper2_dhw = None 
+        self._last_known_day = None
         self._alarm_history = []
         self._last_alarm_state = None
         self._alarm_store = Store(hass, 1, f"{DOMAIN}_alarm_history_{entry_id}")
         self._helper2_store = Store(hass, 1, f"{DOMAIN}_helper2_{entry_id}")
         self._history_store = Store(hass, 1, f"{DOMAIN}_yearly_history_{entry_id}")
-        # Settings log (diff of all settings/* keys between polls)
         self._settings_log = []
         self._last_poll_settings_snapshot = None
         self._settings_baseline_set = False
         self._settings_log_store = Store(hass, 1, f"{DOMAIN}_settings_log_{entry_id}")
-        # Drift log (operating_data/state transitions between polls)
         self._drift_log = []
         self._last_drift_state = None
         self._drift_baseline_set = False
@@ -1187,8 +1111,6 @@ class RTBDataCoordinator(DataUpdateCoordinator):
         data = await self._alarm_store.async_load()
         if data and isinstance(data, list):
             self._alarm_history = data[-ALARM_HISTORY_MAX:]
-            # Genskab last_alarm_state fra seneste entry, så en igangværende
-            # alarm ikke bliver logget som "ny" igen efter en HA-genstart.
             if self._alarm_history:
                 self._last_alarm_state = self._alarm_history[-1].get("code")
             logger.debug(f"Loaded {len(self._alarm_history)} alarm history entries")
@@ -1280,7 +1202,6 @@ class RTBDataCoordinator(DataUpdateCoordinator):
     async def _async_update_data(self):
         """Fetch ALLE data fra fyret."""
 
-        # locked_get holder proxy_lock mens get() kører i executor thread
         def locked_get(path):
             with self.proxy_lock:
                 return self.proxy.get(path)
@@ -1289,10 +1210,6 @@ class RTBDataCoordinator(DataUpdateCoordinator):
             logger.info("Fetching ALL data from boiler...")
             all_data = []
 
-            # ================================================================
-            # 1. DAG-SKIFT DETEKTION - FØRST, før poll af consumption data
-            # så fyret allerede har skiftet slot når vi læser data
-            # ================================================================
             from zoneinfo import ZoneInfo as _ZI
             _tz = _ZI(self.hass.config.time_zone)
             _poll_start = datetime.datetime.now(tz=_tz)
@@ -1305,8 +1222,6 @@ class RTBDataCoordinator(DataUpdateCoordinator):
                     self.stokercloud_daily_timestamps = [_new_ts] + self.stokercloud_daily_timestamps[:30]
                 if self.stokercloud_daily_dhw:
                     self.stokercloud_daily_dhw = [0.0] + self.stokercloud_daily_dhw[:30]
-                # Skriv altid 0.0 til DB for den nye dag og reset helper2
-                # så hver dag starter frisk uanset om fyret kører eller ej
                 await async_inject_daily_statistics(
                     self.hass, self.statistic_identifier, "pellets_daily",
                     _new_ts, 0.0
@@ -1322,9 +1237,6 @@ class RTBDataCoordinator(DataUpdateCoordinator):
                 logger.info("Dag-skift: 0.0 skrevet til DB, helper2 reset til 0.0")
             self._last_known_day = _current_day
 
-            # ================================================================
-            # 2. OPERATING DATA
-            # ================================================================
             logger.debug("Fetching operating_data/...")
             try:
                 data = await self.hass.async_add_executor_job(locked_get, 'operating_data/')
@@ -1334,9 +1246,6 @@ class RTBDataCoordinator(DataUpdateCoordinator):
             except Exception as e:
                 logger.debug(f"  ✗ Error fetching operating_data: {e}")
 
-            # ================================================================
-            # 3. ADVANCED DATA
-            # ================================================================
             logger.debug("Fetching advanced_data/...")
             try:
                 data = await self.hass.async_add_executor_job(locked_get, 'advanced_data/')
@@ -1346,9 +1255,6 @@ class RTBDataCoordinator(DataUpdateCoordinator):
             except Exception as e:
                 logger.debug(f"  ✗ Error fetching advanced_data: {e}")
 
-            # ================================================================
-            # 4. CONSUMPTION DATA - frisk poll efter dag-skift tjek
-            # ================================================================
             logger.debug("Fetching consumption_data individually...")
             for key in [
                 'consumption_data/counter',
@@ -1367,9 +1273,6 @@ class RTBDataCoordinator(DataUpdateCoordinator):
                 except Exception as e:
                     logger.debug(f"  ✗ No data for {key}")
 
-            # ================================================================
-            # 5. SETTINGS ENDPOINTS
-            # ================================================================
             for endpoint in [
                 'settings/boiler/',
                 'settings/hot_water/',
@@ -1399,12 +1302,11 @@ class RTBDataCoordinator(DataUpdateCoordinator):
 
             if all_data:
                 self.rtbdata.set(all_data)
-                self.last_raw_data = all_data  # Store for backup service
+                self.last_raw_data = all_data
                 logger.info(f"✅ Successfully fetched {len(all_data)} total data points!")
             else:
                 logger.warning("Poll returned empty data - keeping last known values")
 
-            # Alarm history tracking
             state_raw = self.rtbdata.get('operating_data/state')
             try:
                 current_state = int(state_raw) if state_raw else None
@@ -1424,9 +1326,6 @@ class RTBDataCoordinator(DataUpdateCoordinator):
 
             self._last_alarm_state = current_state
 
-            # ================================================================
-            # Settings log: diff alle settings/* keys mod forrige poll
-            # ================================================================
             current_settings_snapshot = {
                 k: v for k, v in self.rtbdata.data.items() if k.startswith('settings/')
             }
@@ -1454,9 +1353,6 @@ class RTBDataCoordinator(DataUpdateCoordinator):
 
             self._last_poll_settings_snapshot = current_settings_snapshot
 
-            # ================================================================
-            # Drift log: state-overgange (operating_data/state) mod forrige poll
-            # ================================================================
             if self._drift_baseline_set:
                 if current_state != self._last_drift_state:
                     self._drift_log.append({
@@ -1474,9 +1370,6 @@ class RTBDataCoordinator(DataUpdateCoordinator):
 
             self._last_drift_state = current_state
 
-            # Hvis poll'en starter før midnat og slutter efter midnat, kan helper2
-            # høre til gårsdagens slot mens helper1 læses fra dagens nye slot.
-            # Spring derfor delta over i denne ene poll og lad næste poll starte rent.
             _poll_end = datetime.datetime.now(tz=_tz)
             if _poll_end.date() != _poll_start.date():
                 logger.warning(
@@ -1486,13 +1379,6 @@ class RTBDataCoordinator(DataUpdateCoordinator):
                 )
                 return all_data
 
-            # ================================================================
-            # DELTA LOGIC: Two-helper method with HA DB
-            # helper1 = total_days[current_hour] (felt 1, altid frisk fra fyret)
-            # if helper2 > helper1: new period, reset helper2
-            # if helper1 > helper2: sum from DB + delta → skriv til DB → opdater entity
-            # helper2 = helper1
-            # ================================================================
             _delta_now = datetime.datetime.now(tz=_tz).time()
             _skip_delta = (
                 _delta_now >= datetime.time(23, 59, 50)
@@ -1511,7 +1397,6 @@ class RTBDataCoordinator(DataUpdateCoordinator):
                     return None
 
             if self.stokercloud_pellets and self.stokercloud_timestamps:
-                # Opdater timestamps[0] til indeværende år - håndterer nytår automatisk
                 self.stokercloud_timestamps[0] = _current_year_ts_ms(self.hass)
                 stat_id = _yearly_statistic_id(self.statistic_identifier, "pellets_yearly")
                 helper1 = _read_daily_field("consumption_data/total_days")
@@ -1529,7 +1414,6 @@ class RTBDataCoordinator(DataUpdateCoordinator):
                             self.hass, self.statistic_identifier, "pellets_yearly",
                             [self.stokercloud_timestamps[0]], [new_sum]
                         )
-                        # Opdater daglig pellets (samme delta)
                         if self.stokercloud_daily_pellets and self.stokercloud_daily_timestamps:
                             stat_id_daily = _yearly_statistic_id(self.statistic_identifier, "pellets_daily")
                             db_sum_daily = await _get_today_state_from_db(self.hass, stat_id_daily)
@@ -1543,7 +1427,6 @@ class RTBDataCoordinator(DataUpdateCoordinator):
                     await self._helper2_store.async_save({"helper2_pellets": self._helper2_pellets, "helper2_dhw": self._helper2_dhw})
 
             if _is_dhw_entity_enabled(self.hass, self.entry_id) and self.stokercloud_dhw and self.stokercloud_timestamps:
-                # Opdater timestamps[0] til indeværende år - håndterer nytår automatisk
                 self.stokercloud_timestamps[0] = _current_year_ts_ms(self.hass)
                 stat_id_dhw = _yearly_statistic_id(self.statistic_identifier, "dhw_yearly")
                 helper1_dhw = _read_daily_field("consumption_data/dhw_days")
@@ -1561,7 +1444,6 @@ class RTBDataCoordinator(DataUpdateCoordinator):
                             self.hass, self.statistic_identifier, "dhw_yearly",
                             [self.stokercloud_timestamps[0]], [new_sum_dhw]
                         )
-                        # Opdater daglig DHW (samme delta)
                         if self.stokercloud_daily_dhw and self.stokercloud_daily_timestamps:
                             stat_id_dhw_daily = _yearly_statistic_id(self.statistic_identifier, "dhw_daily")
                             db_sum_dhw_daily = await _get_today_state_from_db(self.hass, stat_id_dhw_daily)
@@ -1574,9 +1456,6 @@ class RTBDataCoordinator(DataUpdateCoordinator):
                     self._helper2_dhw = helper1_dhw
                     await self._helper2_store.async_save({"helper2_pellets": self._helper2_pellets, "helper2_dhw": self._helper2_dhw})
 
-            # ================================================================
-            # 5. INFO MESSAGE
-            # ================================================================
             logger.debug("Fetching info/...")
             try:
                 data = await self.hass.async_add_executor_job(locked_get, 'info/')
