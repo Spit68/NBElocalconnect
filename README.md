@@ -463,7 +463,7 @@ content: >
   <center>
 
   {% set s = states('sensor.nbe_boiler_xxxxx_state') | int(0) %}
-  {% set alarm = states('sensor.nbe_boiler_xxxxx_alarm_message') %}
+  {% set alarm = states('sensor.nbe_boiler_xxxxx_boiler_state') %}
   {% set sub = states('sensor.nbe_boiler_xxxxx_substate_message') %}
   {% set cd = states('sensor.nbe_boiler_xxxxx_state_countdown') | int(0) %}
   {% set info = states('sensor.nbe_boiler_xxxxx_info_message_text') %}
