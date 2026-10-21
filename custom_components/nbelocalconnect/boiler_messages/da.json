@@ -1,5 +1,6 @@
 {
   "boiler_state": {
+    "no_alarm": "Ingen alarm",
     "0": "Vent et øjeblik",
     "1": "Optænding 1",
     "2": "Optænding 1",

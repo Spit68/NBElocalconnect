@@ -83,6 +83,8 @@ SPECIFIC_OPTIONS = {
         "Off": 0,
         "Ultrasound": 1,
         "Infrared (20-150cm)": 2,
+        "Infrared (10-80cm)": 3,
+        "Infrared (4-30cm)": 4,        
     },
     'settings/cleaning/pressure_t7': {
         # Unknown - feedback needed. Placeholder.
@@ -370,7 +372,11 @@ class NBESettingsSelect(CoordinatorEntity, SelectEntity):
             return None
         # Return full option string from options list (may include "(entity name)" suffix)
         for opt in self.options:
-            base = opt.split(" (")[0].strip()
+            base = (
+                opt.split(" (")[0].strip()
+                if self._option_type in ("L", "T", "T_WWW")
+                else opt
+            )
             opt_val = self._base_option_map.get(base)
             if opt_val == own_val:
                 return opt
@@ -383,7 +389,11 @@ class NBESettingsSelect(CoordinatorEntity, SelectEntity):
 
     async def async_select_option(self, option: str) -> None:
         # Strip "(entity name)" suffix if present
-        base_option = option.split(" (")[0].strip()
+        base_option = (
+            option.split(" (")[0].strip()
+            if self._option_type in ("L", "T", "T_WWW")
+            else option
+        )
 
         val = self._base_option_map.get(base_option)
 

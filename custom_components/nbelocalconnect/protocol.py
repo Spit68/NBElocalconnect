@@ -157,9 +157,14 @@ class Proxy:
         if d[0] == None or d[0] == '*':
             return ('settings',)
         elif len(d) == 3 and d[1] in self.settings and value is not None :
-            self.s.settimeout(5)
-            response = self.make_request(2, '.'.join(d[1:3]) + '=' + value, encrypt=True)
-            self.s.settimeout(5.3)
+            previous_timeout = self.s.gettimeout()
+            try:
+                self.s.settimeout(5)
+                response = self.make_request(
+                    2, '.'.join(d[1:3]) + '=' + value, encrypt=True
+                )
+            finally:
+                self.s.settimeout(previous_timeout)
             if response.status == 0:
                 return ('OK',)
             else:
@@ -179,18 +184,17 @@ class Proxy:
         self.request.encrypted = encrypt
         self.request.pincode = self.password
         _LOGGER.debug(f"Making request to boiler. encrypt={encrypt}, Seqno={self.request.sequencenumber}, pw={self.request.pincode}")
-        # Check if there's data available to be read without blocking
-        ready_to_read, _, _ = select.select([self.s], [], [], 0)
-
-        if self.s in ready_to_read:
-            # Read and discard any existing data
-            try:
-                while True:
-                    dataDiscard, serverDiscard = self.s.recvfrom(4096)
-                    if not dataDiscard:
-                        break
-            except socket.error:
-                pass  # No more data to receive
+        # Discard queued packets without waiting for new packets.
+        previous_timeout = self.s.gettimeout()
+        try:
+            self.s.setblocking(False)
+            for _ in range(64):
+                try:
+                    self.s.recvfrom(4096)
+                except BlockingIOError:
+                    break
+        finally:
+            self.s.settimeout(previous_timeout)
 
         self.s.sendto(self.request.encode(), self.addr)
         data, server = self.s.recvfrom(4096)

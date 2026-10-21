@@ -14,6 +14,7 @@ from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
     BinarySensorEntity,
 )
+from . import ALARM_STATES
 from .const import DOMAIN
 from datetime import datetime, timedelta
 from logging import getLogger
@@ -54,7 +55,7 @@ def get_sensor_config(key):
     key_lower = key.lower()
     
     # Temperature
-    if any(x in key_lower for x in ['temp', 'temperature']):
+    if any(x in key_lower for x in ['temp', 'temperature', 'chill', 'chill2']):
         return "°C", SensorDeviceClass.TEMPERATURE, SensorStateClass.MEASUREMENT
     
     # Weight (kg)
@@ -259,6 +260,11 @@ async def async_setup_entry(hass, entry, async_add_entities):
     sensors.append(
         RTBInfoSensor(coordinator, f'{entry_id}_v2_info_message')
     )
+    
+    # BOILER STATE SENSOR (normal states only)
+    sensors.append(
+        RTBBoilerStateSensor(coordinator, f'{entry_id}_v2_boiler_state')
+    )    
 
     # ALARM MSG SENSOR (tekst fra boiler_state oversættelse)
     sensors.append(
@@ -769,6 +775,62 @@ class RTBInfoSensor(CoordinatorEntity, SensorEntity):
     def entity_registry_enabled_default(self):
         return True
 
+class RTBBoilerStateSensor(CoordinatorEntity, SensorEntity):
+    """Show translated boiler states excluding alarms."""
+
+    _attr_has_entity_name = False
+
+    def __init__(self, coordinator, uid):
+        super().__init__(coordinator)
+        self.uid = uid
+
+    @property
+    def name(self):
+        return "Boiler State"
+
+    @property
+    def unique_id(self):
+        return self.uid
+
+    @property
+    def state(self):
+        data = self.coordinator.rtbdata.get('operating_data/state')
+        key = _normalize_translation_key(data)
+
+        if key is None:
+            return None
+
+        try:
+            state_number = int(key)
+        except (TypeError, ValueError):
+            return None
+
+        if state_number in ALARM_STATES:
+            return ""
+
+        return _translate_boiler_value(
+            self.coordinator.translations,
+            "boiler_state",
+            data,
+        )
+
+    @property
+    def extra_state_attributes(self):
+        raw_state = self.coordinator.rtbdata.get('operating_data/state')
+        return {
+            "state_number": raw_state,
+            "translation_key": _normalize_translation_key(raw_state),
+            "datapoint_path": "operating_data/state",
+            "writable": False,
+        }
+
+    @property
+    def device_info(self):
+        return {"identifiers": {(DOMAIN, self.coordinator.entry_id)}}
+
+    @property
+    def entity_registry_enabled_default(self):
+        return True
 
 class RTBAlarmMsgSensor(CoordinatorEntity, SensorEntity):
     _attr_has_entity_name = False
@@ -788,10 +850,25 @@ class RTBAlarmMsgSensor(CoordinatorEntity, SensorEntity):
 
     @property
     def state(self):
-        """Return translated boiler state text."""
+        """Return the current alarm, or no alarm."""
         data = self.coordinator.rtbdata.get('operating_data/state')
-        if data is None:
+        key = _normalize_translation_key(data)
+
+        if key is None:
             return None
+
+        try:
+            state_number = int(key)
+        except (TypeError, ValueError):
+            return None
+
+        if state_number not in ALARM_STATES:
+            return _translate_boiler_value(
+                self.coordinator.translations,
+                "boiler_state",
+                "no_alarm",
+            )
+
         return _translate_boiler_value(
             self.coordinator.translations,
             "boiler_state",
@@ -825,12 +902,38 @@ class RTBAlarmMsgSensor(CoordinatorEntity, SensorEntity):
 
 
 class RTBSettingsLogSensor(CoordinatorEntity, SensorEntity):
+    """Publish each new settings change separately."""
+
     _attr_has_entity_name = False
-    """Sensor showing a log of settings changes detected between polls."""
+    _unrecorded_attributes = frozenset({"settings_log"})
 
     def __init__(self, coordinator, uid):
         super().__init__(coordinator)
         self.uid = uid
+        self._last_published_id = coordinator._settings_log_sequence
+        self._current_entry = (
+            dict(coordinator._settings_log[-1])
+            if coordinator._settings_log
+            else None
+        )
+
+    @callback
+    def _handle_coordinator_update(self):
+        """Publish new entries once, in chronological order."""
+        new_entries = [
+            dict(entry)
+            for entry in self.coordinator._settings_log
+            if entry["id"] > self._last_published_id
+        ]
+
+        if not new_entries:
+            super()._handle_coordinator_update()
+            return
+
+        for entry in new_entries:
+            self._current_entry = entry
+            self.async_write_ha_state()
+            self._last_published_id = entry["id"]
 
     @property
     def name(self):
@@ -846,13 +949,22 @@ class RTBSettingsLogSensor(CoordinatorEntity, SensorEntity):
 
     @property
     def state(self):
-        summary = self.coordinator.get_settings_log_summary()
-        return summary if summary is not None else "No changes logged yet"
+        if self._current_entry is None:
+            return "No changes logged yet"
+
+        entry = self._current_entry
+        name = entry["key"].replace("settings/", "").replace(
+            "_", " "
+        ).replace("/", " ").title()
+        return f"{name}: {entry.get('from')} -> {entry.get('to')}"
 
     @property
     def extra_state_attributes(self):
+        entry = self._current_entry or {}
         return {
             "settings_log": self.coordinator.get_translated_settings_log(),
+            "change_id": entry.get("id"),
+            "change_timestamp": entry.get("timestamp"),
         }
 
     @property
@@ -870,6 +982,7 @@ class RTBSettingsLogSensor(CoordinatorEntity, SensorEntity):
 
 class RTBDriftLogSensor(CoordinatorEntity, SensorEntity):
     _attr_has_entity_name = False
+    _unrecorded_attributes = frozenset({"drift_log"})
     """Sensor showing a log of boiler state transitions detected between polls."""
 
     def __init__(self, coordinator, uid):

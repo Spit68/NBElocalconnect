@@ -787,11 +787,33 @@ async def async_setup_entry(hass, entry):
             str_value = str(value)
 
         try:
-            result = await hass.async_add_executor_job(locked_set, key, str_value)
-            logger.info(f"Successfully set {key} = {str_value}")
+            result = await hass.async_add_executor_job(
+                locked_set, key, str_value
+            )
+        except TimeoutError as e:
+            message = (
+                f"No response from boiler when setting {key}. "
+                "The command may have been applied. "
+                "Check the boiler state before trying again."
+            )
+            logger.warning(message)
+            raise HomeAssistantError(message) from e
+
         except Exception as e:
-            logger.error(f"Error setting {key}: {e}")
-            raise
+            logger.error("Error setting %s: %s", key, e)
+            raise HomeAssistantError(
+                f"Could not confirm setting {key}: {e}"
+            ) from e
+
+        if result != ('OK',):
+            logger.warning(
+                "Setting %s was not confirmed: %r", key, result
+            )
+            raise HomeAssistantError(
+                f"Boiler did not confirm setting {key}: {result!r}"
+            )
+
+        logger.info("Successfully set %s = %s", key, str_value)
 
     hass.services.async_register(DOMAIN, "set_setting", handle_set_setting)
 
@@ -1095,6 +1117,7 @@ class RTBDataCoordinator(DataUpdateCoordinator):
         self._helper2_store = Store(hass, 1, f"{DOMAIN}_helper2_{entry_id}")
         self._history_store = Store(hass, 1, f"{DOMAIN}_yearly_history_{entry_id}")
         self._settings_log = []
+        self._settings_log_sequence = 0
         self._last_poll_settings_snapshot = None
         self._settings_baseline_set = False
         self._settings_log_store = Store(hass, 1, f"{DOMAIN}_settings_log_{entry_id}")
@@ -1120,6 +1143,12 @@ class RTBDataCoordinator(DataUpdateCoordinator):
         data = await self._settings_log_store.async_load()
         if data and isinstance(data, list):
             self._settings_log = data[-SETTINGS_LOG_MAX:]
+
+            # Assign IDs to existing entries in chronological order.
+            for index, entry in enumerate(self._settings_log, start=1):
+                entry["id"] = index
+
+            self._settings_log_sequence = len(self._settings_log)
             logger.debug(f"Loaded {len(self._settings_log)} settings log entries")
 
     async def async_load_drift_log(self):
@@ -1202,9 +1231,41 @@ class RTBDataCoordinator(DataUpdateCoordinator):
     async def _async_update_data(self):
         """Fetch ALLE data fra fyret."""
 
+        class PollReadError(TimeoutError):
+            """A poll read failed after all attempts."""
+
         def locked_get(path):
-            with self.proxy_lock:
-                return self.proxy.get(path)
+            is_info = path.rstrip('/') == 'info'
+            attempts = 2 if is_info else 3
+
+            for attempt in range(1, attempts + 1):
+                try:
+                    with self.proxy_lock:
+                        data = self.proxy.get(path)
+
+                    # Ordinary data must contain a non-empty value.
+                    # An empty Info response is valid.
+                    if not is_info and not (
+                        data and any(
+                            isinstance(item, str)
+                            and '=' in item
+                            and item.split('=', 1)[1].strip()
+                            for item in data
+                        )
+                    ):
+                        raise ValueError("Empty data response")
+
+                    return data
+
+                except (OSError, ValueError, IndexError) as err:
+                    logger.debug(
+                        "Read %s failed (attempt %s/%s): %s",
+                        path, attempt, attempts, err,
+                    )
+                    if attempt == attempts:
+                        raise PollReadError(
+                            f"{path}: failed after {attempts} attempts"
+                        ) from err
 
         try:
             logger.info("Fetching ALL data from boiler...")
@@ -1243,6 +1304,8 @@ class RTBDataCoordinator(DataUpdateCoordinator):
                 if data:
                     all_data.extend(data)
                     logger.debug(f"  ✓ Got {len(data)} operating_data items")
+            except PollReadError:
+                raise
             except Exception as e:
                 logger.debug(f"  ✗ Error fetching operating_data: {e}")
 
@@ -1252,6 +1315,8 @@ class RTBDataCoordinator(DataUpdateCoordinator):
                 if data:
                     all_data.extend(data)
                     logger.debug(f"  ✓ Got {len(data)} advanced_data items")
+            except PollReadError:
+                raise
             except Exception as e:
                 logger.debug(f"  ✗ Error fetching advanced_data: {e}")
 
@@ -1270,9 +1335,10 @@ class RTBDataCoordinator(DataUpdateCoordinator):
                     if data:
                         all_data.extend(data)
                         logger.debug(f"  ✓ Got {key}")
+                except PollReadError:
+                    raise
                 except Exception as e:
                     logger.debug(f"  ✗ No data for {key}")
-
             for endpoint in [
                 'settings/boiler/',
                 'settings/hot_water/',
@@ -1297,6 +1363,8 @@ class RTBDataCoordinator(DataUpdateCoordinator):
                     if data:
                         all_data.extend(data)
                         logger.debug(f"  ✓ Got {len(data)} items from {endpoint}")
+                except PollReadError:
+                    raise
                 except Exception as e:
                     logger.debug(f"  ✗ Error fetching {endpoint}: {e}")
 
@@ -1326,8 +1394,19 @@ class RTBDataCoordinator(DataUpdateCoordinator):
 
             self._last_alarm_state = current_state
 
+            excluded_settings_log_keys = {
+                'settings/ignition/ignition_number',
+                'settings/hopper/trip1',                
+                'settings/hopper/trip2',
+                'settings/hopper/content',
+                'settings/cleaning/trip_countdown',
+            }
+
             current_settings_snapshot = {
-                k: v for k, v in self.rtbdata.data.items() if k.startswith('settings/')
+                k: v
+                for k, v in self.rtbdata.data.items()
+                if k.startswith('settings/')
+                and k not in excluded_settings_log_keys
             }
 
             if self._settings_baseline_set:
@@ -1335,7 +1414,9 @@ class RTBDataCoordinator(DataUpdateCoordinator):
                 for key, new_val in current_settings_snapshot.items():
                     old_val = self._last_poll_settings_snapshot.get(key)
                     if old_val != new_val:
+                        self._settings_log_sequence += 1
                         self._settings_log.append({
+                            "id": self._settings_log_sequence,
                             "key": key,
                             "from": old_val,
                             "to": new_val,
@@ -1458,31 +1539,40 @@ class RTBDataCoordinator(DataUpdateCoordinator):
 
             logger.debug("Fetching info/...")
             try:
-                data = await self.hass.async_add_executor_job(locked_get, 'info/')
-                if data:
-                    raw = data[0].strip() if data else '0'
-                    parts = [p.strip() for p in raw.split(',') if p.strip()]
-                    nums = []
-                    for p in parts:
-                        try:
-                            n = int(p)
-                            if n != 0:
-                                nums.append(n)
-                        except (ValueError, TypeError):
-                            pass
-                    self.info_messages = nums
-                    self.info_message = nums[0] if nums else 0
-                    logger.debug(f"  ✓ Info messages: {self.info_messages}")
+                data = await self.hass.async_add_executor_job(
+                    locked_get, 'info/'
+                )
+                
+                raw = ','.join(data or [])
+                parts = [p.strip() for p in raw.split(',') if p.strip()]
+                nums = []
+
+                for p in parts:
+                    n = int(p)
+                    if n != 0:
+                        nums.append(n)
+
+                self.info_messages = nums
+                self.info_message = nums[0] if nums else 0
+                logger.debug(f"  ✓ Info messages: {self.info_messages}")
+
             except Exception as e:
-                logger.debug(f"  ✗ Error fetching info: {e}")
-                self.info_messages = []
-                self.info_message = 0
+                logger.warning(
+                    "Info update failed - keeping last known Info: %s", e
+                )
 
             return all_data
+
+        except PollReadError as e:
+            logger.warning(
+                "Poll aborted - keeping last known values: %s", e
+            )
+            return self.last_raw_data
 
         except TimeoutError:
             logger.debug("Timeout fetching data. Will retry next interval.")
             return None
+
         except Exception as e:
             logger.error(f"Error fetching data: {e}")
-            return None
+            return None          

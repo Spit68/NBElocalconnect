@@ -1,5 +1,6 @@
 {
   "boiler_state": {
+    "no_alarm": "No alarm",
     "0": "Wait a moment",
     "1": "Ignition 1",
     "2": "Ignition 1",
