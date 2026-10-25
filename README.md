@@ -177,8 +177,6 @@ When the countdown reaches zero and **Cleaning Trip Setpoint** is enabled, the b
 
 After emptying the ash drawer, press **Reset Ash Countdown** to start a new countdown.
 
-
-
 ![Button Controls](add_integration/buttons.png)
 
 where xxxxx is your boiler serial number
