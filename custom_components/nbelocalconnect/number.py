@@ -55,6 +55,7 @@ SKIP_SETTINGS = {
     'settings/oxygen/lambda_expansion_module',
     'settings/misc/expansion_module',
     'settings/sun/excess_from_top',
+    'settings/cleaning/trip_setpoint',
     # Button
     'settings/ignition/clear_ignitions',
     'settings/auger/forced_run',
@@ -66,79 +67,79 @@ SKIP_SETTINGS = {
 
 
 def get_number_config(key):
-    """Return (unit, min, max, step) based on key name."""
+    """Return the unit of measurement based on the setting key."""
     key_lower = key.lower()
 
     # Temperature
     if any(x in key_lower for x in ['temp', 'temperature']):
-        return "°C", 0.0, 120.0, 1.0
+        return "°C"
 
     # kW power
     if any(x in key_lower for x in ['kw_min', 'kw_max']):
-        return "kW", 0.0, 100.0, 0.5
+        return "kW"
 
     # Percent / speed / fan
     if any(x in key_lower for x in ['speed', 'pct', 'percent', 'power_min', 'power_max']):
-        return "%", 0.0, 100.0, 1.0
+        return "%"
 
     # O2 / oxygen
     if any(x in key_lower for x in ['o2_', 'oxygen']):
-        return "%", 0.0, 25.0, 0.1
+        return "%"
 
     # Time (seconds)
     if any(x in key_lower for x in ['_time', 'block_time', 'regulation_time', 'off_delay', 'on_delay']):
-        return "s", 0.0, 3600.0, 1.0
+        return "s"
 
     # Pellet weight
     if any(x in key_lower for x in ['pellet', 'min_dose', 'ignition/pellets']):
-        return "g", 0.0, 5000.0, 1.0
+        return "g"
 
     # Auger capacity (g)
     if 'auger_capacity' in key_lower or 'auger_consumption' in key_lower:
-        return "g", 0.0, 1000.0, 1.0
+        return "g"
 
     # Distance (cm)
     if 'distance' in key_lower:
-        return "cm", 0.0, 500.0, 1.0
+        return "cm"
 
     # Flow / liters
     if 'liter' in key_lower or 'flow_' in key_lower:
-        return "L", 0.0, 100.0, 0.1
+        return "L"
 
     # Boiler diff_over / diff_under: heltal, ikke decimal
     if 'diff_over' in key_lower or 'diff_under' in key_lower:
-        return "°C", 0.0, 50.0, 1.0
+        return "°C"
 
     # PID gain / correction values
     if any(x in key_lower for x in ['gain', 'corr_', 'diff', 'addition', 'calibration']):
-        return None, -100.0, 100.0, 0.01
+        return None
 
     # Period (minutes)
     if 'period' in key_lower:
-        return "min", 0.0, 1440.0, 1.0
+        return "min"
 
     # Alarm / min/max thresholds
     if any(x in key_lower for x in ['min_boiler', 'max_shaft', 'ext_stop']):
-        return "°C", 0.0, 120.0, 1.0
+        return "°C"
 
     # Content / hopper fill
     if 'content' in key_lower:
-        return "kg", 0.0, 5000.0, 1.0
+        return "kg"
 
     # Fan RPM
     if 'rpm' in key_lower or 'current' in key_lower:
-        return None, 0.0, 5000.0, 1.0
+        return None
 
     # Exhaust
     if 'exhaust' in key_lower:
-        return "%", 0.0, 100.0, 1.0
+        return "%"
 
     # Remain (hours)
     if 'remain' in key_lower:
-        return "h", 0.0, 24.0, 0.5
+        return "h"
 
     # Default: dimensionless
-    return None, 0.0, 1000.0, 1.0
+    return None
 
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
@@ -190,9 +191,17 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         else:
             name = key.replace('settings/', '').replace('_', ' ').replace('/', ' ').title()
 
-        unit, min_val, max_val, step = get_number_config(key)
-        uid = f"{entry_id}_v2_num_{key.replace('/', '_')}"
+        metadata = coordinator.settings_metadata.get(key)
+        if metadata is None:
+            _LOGGER.warning("Skipping setting without NBE metadata: %s", key)
+            continue
 
+        unit = get_number_config(key)
+        min_val = metadata["min"]
+        max_val = metadata["max"]
+        step = 10 ** -metadata["decimals"]
+
+        uid = f"{entry_id}_v2_num_{key.replace('/', '_')}"
         entities.append(
             RTBSettingsNumber(coordinator, hass, name, key, uid, unit, min_val, max_val, step)
         )

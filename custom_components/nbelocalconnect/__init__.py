@@ -661,6 +661,8 @@ async def async_setup_entry(hass, entry):
     )
 
     coordinator.translations = await async_load_translations(hass, hass.config.language)
+    
+    await coordinator.async_fetch_settings_metadata()    
 
     await coordinator.async_load_alarm_history()
     await coordinator.async_load_settings_log()
@@ -1097,6 +1099,7 @@ class RTBDataCoordinator(DataUpdateCoordinator):
         self.statistic_identifier = str(statistic_identifier or entry_id)
         self.proxy = proxy
         self.rtbdata = RTBData([])
+        self.settings_metadata = {}        
         self.info_message = 0
         self.info_messages = []
         self.translations = {"boiler_state": {}, "boiler_substate": {}, "boiler_info": {}}
@@ -1128,6 +1131,68 @@ class RTBDataCoordinator(DataUpdateCoordinator):
 
         update_interval = datetime.timedelta(seconds=scan_interval)
         super().__init__(hass, logger, name=DOMAIN, update_interval=update_interval)
+    async def async_fetch_settings_metadata(self):
+        """Fetch and parse settings metadata from this boiler."""
+
+        def fetch():
+            results = {}
+
+            with self.proxy_lock:
+                for group in self.proxy.settings:
+                    try:
+                        response = self.proxy.make_request(3, f"{group}.*")
+                        results[group] = response.payload
+                    except Exception as err:
+                        logger.warning(
+                            "NBE metadata failed for %s: %s", group, err
+                        )
+
+            return results
+
+        results = await self.hass.async_add_executor_job(fetch)
+        metadata = {}
+
+        for group, payload in results.items():
+            if not isinstance(payload, str):
+                logger.warning("Invalid NBE metadata response for %s", group)
+                continue
+
+            for item in payload.split(";"):
+                if "=" not in item:
+                    continue
+
+                name, values = item.split("=", 1)
+                parts = values.split(",")
+
+                if len(parts) != 4:
+                    continue
+
+                try:
+                    min_val = float(parts[0])
+                    max_val = float(parts[1])
+                    default = float(parts[2])
+                    decimals = int(parts[3])
+                except (ValueError, TypeError):
+                    continue
+
+                if min_val > max_val or not 0 <= decimals <= 6:
+                    continue
+
+                key = f"settings/{group}/{name.strip()}"
+
+                metadata[key] = {
+                    "min": min_val,
+                    "max": max_val,
+                    "default": default,
+                    "decimals": decimals,
+                }
+
+        self.settings_metadata = metadata
+
+        logger.debug(
+            "NBE settings metadata loaded: %s entries",
+            len(self.settings_metadata),
+        )        
 
     async def async_load_alarm_history(self):
         """Load alarm history from persistent storage."""

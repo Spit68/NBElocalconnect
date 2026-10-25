@@ -18,6 +18,7 @@ SWITCH_SETTINGS = [
     ('settings/oxygen/lambda_expansion_module','Oxygen Lambda Expansion Module',False),
     ('settings/misc/expansion_module',         'Misc Expansion Module',         False),
     ('settings/sun/excess_from_top',           'Sun Excess From Top',           False),
+    ('settings/cleaning/trip_setpoint',        'Cleaning Trip Setpoint',        True),    
 ]
 
 
