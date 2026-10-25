@@ -22,6 +22,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         NBERestoreButton(coordinator, hass, f"{entry_id}_nbe_restore"),
         NBEDeleteBackupButton(coordinator, hass, f"{entry_id}_nbe_delete_backup"),
         NBEResetEnergyButton(coordinator, hass, f"{entry_id}_nbe_reset_energy"),
+        NBEResetAshCountdownButton(coordinator, hass, f"{entry_id}_nbe_reset_ash_countdown"),        
         RTBSignalButton(coordinator, proxy, "Reset Ignitions", "settings/ignition/clear_ignitions", f"{entry_id}_nbe_clear_ignitions", "1"),
         RTBSignalButton(coordinator, proxy, "Start Auger 6 min. Weighing Test", "settings/auger/forced_run", f"{entry_id}_nbe_forced_auger_run", "360"),
         RTBSignalButton(coordinator, proxy, "Stop Auger 6 min. Weighing Test", "settings/auger/forced_run", f"{entry_id}_nbe_stop_auger_run", "0"),
@@ -147,6 +148,51 @@ class NBEDeleteBackupButton(CoordinatorEntity, ButtonEntity):
 
     async def async_press(self) -> None:
         await self._hass.services.async_call(DOMAIN, "delete_backup", {})
+        
+class NBEResetAshCountdownButton(CoordinatorEntity, ButtonEntity):
+    """Reset ash countdown using the stored value."""
+
+    def __init__(self, coordinator, hass, uid):
+        super().__init__(coordinator)
+        self._hass = hass
+        self.uid = uid
+
+    @property
+    def name(self):
+        return "Reset Ash Countdown"
+
+    @property
+    def unique_id(self):
+        return self.uid
+
+    @property
+    def icon(self):
+        return "mdi:restart"
+
+    @property
+    def device_info(self):
+        return {"identifiers": {(DOMAIN, self.coordinator.entry_id)}}
+
+    async def async_press(self) -> None:
+        """Write stored reset value to the boiler."""
+        value = self.coordinator._ash_reset_value
+
+        if not isinstance(value, (int, float)) or not 1 <= value <= 32500:
+            raise ValueError("Configure Cleaning Trip Reset Value before resetting")
+
+        def _do_set():
+            with self.coordinator.proxy_lock:
+                return self.coordinator.proxy.set(
+                    "settings/cleaning/trip_countdown", str(int(value))
+                )
+
+        result = await self._hass.async_add_executor_job(_do_set)
+
+        if result != ("OK",):
+            raise RuntimeError(f"Ash countdown reset failed: {result}")
+
+        _LOGGER.info("Ash countdown reset to %s kg", int(value))
+        await self.coordinator.async_request_refresh()        
 
 class NBEResetEnergyButton(CoordinatorEntity, ButtonEntity):
     """Button that resets both accumulated energy sensors to zero."""
