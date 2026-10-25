@@ -161,8 +161,21 @@ The integration includes built-in backup and restore functionality for all boile
 - **Reset Alarm**: Resets active alarms
 - **Start Auger 6 min. Weighing Test**: Starts a 6-minute auger weighing test
 - **Stop Auger 6 min. Weighing Test**: Stops the auger weighing test
+- **Reset Ash Countdown**: Resets the ash cleaning countdown to the value configured in Cleaning Trip Reset Value.
 
 The sensor **Auger Weighing Test Timer** shows a live countdown in seconds during the weighing test.
+
+### Ash Drawer Countdown
+
+The integration allows you to reset the boiler's ash cleaning countdown directly from Home Assistant.
+
+- **Cleaning Trip Reset Value**: Configures the amount in kilograms used when resetting the countdown (default: 2000 kg).
+- **Reset Ash Countdown**: Resets the boiler's ash cleaning countdown to the configured value.
+- **Cleaning Trip Setpoint**: Must be enabled in the boiler settings for the ash drawer notification to work.
+
+When the countdown reaches zero and **Cleaning Trip Setpoint** is enabled, the boiler generates **Info 24 — Ash drawer is full, needs emptying**.
+
+After emptying the ash drawer, press **Reset Ash Countdown** to start a new countdown.
 
 ![Button Controls](add_integration/buttons.png)
 
