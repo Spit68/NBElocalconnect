@@ -69,6 +69,10 @@ SKIP_SETTINGS = {
 def get_number_config(key):
     """Return the unit of measurement based on the setting key."""
     key_lower = key.lower()
+    
+    # Ash cleaning countdown
+    if key_lower == 'settings/cleaning/trip_countdown':
+        return "kg"    
 
     # Temperature
     if any(x in key_lower for x in ['temp', 'temperature']):
@@ -152,6 +156,11 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     entities.append(
         RTBScanIntervalNumber(coordinator, f'{entry_id}_v2_scan_interval')
     )
+    
+    # --- Ash Countdown Reset Value ---
+    entities.append(
+        RTBAshResetNumber(coordinator, f'{entry_id}_v2_ash_reset_value')
+    )    
 
     # --- Dynamic settings number entities ---
     all_keys = coordinator.rtbdata.get_all_keys()
@@ -283,6 +292,61 @@ class RTBScanIntervalNumber(CoordinatorEntity, NumberEntity, RestoreEntity):
     def entity_registry_enabled_default(self):
         return True
 
+# =============================================================================
+# ASH COUNTDOWN RESET VALUE
+# =============================================================================
+
+class RTBAshResetNumber(CoordinatorEntity, NumberEntity):
+    """Stored ash countdown reset value for this boiler."""
+
+    def __init__(self, coordinator, uid):
+        super().__init__(coordinator)
+        self.uid = uid
+
+    @property
+    def name(self):
+        return "Cleaning Trip Reset Value"
+
+    @property
+    def unique_id(self):
+        return self.uid
+
+    @property
+    def native_value(self):
+        return self.coordinator._ash_reset_value
+
+    @property
+    def native_min_value(self):
+        return 1
+
+    @property
+    def native_max_value(self):
+        return 32500
+
+    @property
+    def native_step(self):
+        return 1
+
+    @property
+    def native_unit_of_measurement(self):
+        return "kg"
+
+    @property
+    def mode(self):
+        return NumberMode.BOX
+
+    @property
+    def entity_category(self):
+        return EntityCategory.CONFIG
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Save reset value in Home Assistant without writing to boiler."""
+        await self.coordinator.async_save_ash_reset(int(value))
+        self.async_write_ha_state()
+
+    @property
+    def device_info(self):
+        return {"identifiers": {(DOMAIN, self.coordinator.entry_id)}}
 
 # =============================================================================
 # SETTINGS NUMBER

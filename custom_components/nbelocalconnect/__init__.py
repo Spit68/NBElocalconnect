@@ -667,6 +667,7 @@ async def async_setup_entry(hass, entry):
     await coordinator.async_load_alarm_history()
     await coordinator.async_load_settings_log()
     await coordinator.async_load_drift_log()
+    await coordinator.async_load_ash_reset()    
     await coordinator.async_config_entry_first_refresh()
 
     hass.data[DOMAIN][entry.entry_id + '_coordinator'] = coordinator
@@ -1119,6 +1120,8 @@ class RTBDataCoordinator(DataUpdateCoordinator):
         self._alarm_store = Store(hass, 1, f"{DOMAIN}_alarm_history_{entry_id}")
         self._helper2_store = Store(hass, 1, f"{DOMAIN}_helper2_{entry_id}")
         self._history_store = Store(hass, 1, f"{DOMAIN}_yearly_history_{entry_id}")
+        self._ash_reset_value = 2000
+        self._ash_reset_store = Store(hass, 1, f"{DOMAIN}_ash_reset_{entry_id}")        
         self._settings_log = []
         self._settings_log_sequence = 0
         self._last_poll_settings_snapshot = None
@@ -1270,6 +1273,21 @@ class RTBDataCoordinator(DataUpdateCoordinator):
         from_txt = state_translations.get(str(entry.get("from")), f"State {entry.get('from')}")
         to_txt = state_translations.get(str(entry.get("to")), f"State {entry.get('to')}")
         return f"{from_txt} -> {to_txt}"
+        
+    async def async_load_ash_reset(self):
+        """Load ash countdown reset value from persistent storage."""
+        data = await self._ash_reset_store.async_load()
+        if isinstance(data, dict):
+            self._ash_reset_value = data.get("value")  
+
+    async def async_save_ash_reset(self, value: int):
+        """Save ash countdown reset value to persistent storage."""
+        if value <= 0:
+            raise ValueError("Ash countdown reset value must be positive")
+
+        await self._ash_reset_store.async_save({"value": value})
+        self._ash_reset_value = value
+        self.async_update_listeners()            
 
     async def async_load_helper2(self):
         """Load helper2 values from persistent storage."""
