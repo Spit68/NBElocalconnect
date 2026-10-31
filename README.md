@@ -62,7 +62,7 @@ You can use [jsoneditoronline.org](https://jsoneditoronline.org) to easily edit 
 
 ### Supported Controllers
 - V7
-- V10
+- V10 with firmware 10.09xx (latest version: 10.0974), or V10 running V13 firmware.
 - V13
 
 Due to a firmware bug in V7, V10 and V13 controllers, yearly consumption data stops being stored in the boiler after 2024. NBE has been contacted about this issue but has declined to fix it.
