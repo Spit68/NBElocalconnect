@@ -95,6 +95,8 @@ BACKUP_SETTINGS = [
     ("cleaning", "output_burner"),
     ("cleaning", "output_boiler1"),
     ("cleaning", "output_boiler2"),
+    ("cleaning", "pressure_t7"),
+    ("cleaning", "trip_setpoint"),
     # regulation
     ("regulation", "boiler_gain_p"),
     ("regulation", "boiler_gain_i"),
@@ -116,6 +118,7 @@ BACKUP_SETTINGS = [
     ("fan", "exhaust_10"),
     ("fan", "exhaust_50"),
     ("fan", "exhaust_100"),
+    ("fan", "output_exhaust"),    
     # ignition
     ("ignition", "pellets"),
     ("ignition", "power"),
@@ -137,6 +140,9 @@ BACKUP_SETTINGS = [
     ("hopper", "auto_fill"),
     ("hopper", "distance_max"),
     ("hopper", "distance_sensor"),
+    ("hopper", "min_content"),
+    ("hopper", "distance_top"),
+    ("hopper", "distance_bottom"),    
     # auger
     ("auger", "kw_min"),
     ("auger", "kw_max"),
@@ -146,6 +152,8 @@ BACKUP_SETTINGS = [
     ("hot_water", "diff_under"),
     ("hot_water", "dhw_remain"),
     ("hot_water", "output"),
+    ("hot_water", "dwh_weather"),
+    ("hot_water", "dwh_weather2"),    
     # sun
     ("sun", "collector_temp"),
     ("sun", "pump_start_diff"),
@@ -160,6 +168,9 @@ BACKUP_SETTINGS = [
     ("sun", "input_collector_2"),
     ("sun", "input_dhw"),
     ("sun", "input_excess"),
+    # weather
+    ("weather", "input_forward"),
+    ("weather2", "input_forward"),    
 ]
 
 
@@ -941,7 +952,11 @@ async def async_setup_entry(hass, entry):
             max_retries = 3
             for attempt in range(max_retries):
                 try:
-                    await hass.async_add_executor_job(locked_set, path, value)
+                    result = await hass.async_add_executor_job(locked_set, path, value)
+
+                    if result != ('OK',):
+                        raise ValueError(f"Boiler did not confirm setting {path}: {result!r}")
+
                     ok += 1
                     if attempt > 0:
                         logger.info(f"Restore retry succeeded for {path} (attempt {attempt + 1})")
@@ -1103,6 +1118,7 @@ class RTBDataCoordinator(DataUpdateCoordinator):
         self.settings_metadata = {}        
         self.info_message = 0
         self.info_messages = []
+        self._info_parse_warned = False
         self.translations = {"boiler_state": {}, "boiler_substate": {}, "boiler_info": {}}
         self.proxy_lock = proxy_lock
         self.last_raw_data = []
@@ -1311,6 +1327,56 @@ class RTBDataCoordinator(DataUpdateCoordinator):
             })
         return result
 
+    @staticmethod
+    def _parse_info_payload(data):
+        """Parse the info/ response into a list of non-zero message numbers.
+
+        Each element is parsed on its own, so one malformed element (hidden
+        characters, a 'key=' prefix etc.) cannot discard the valid ones.
+        Returns (nums, bad) where bad lists the elements that needed cleanup
+        or could not be parsed.
+        """
+        raw = ','.join(str(item) for item in (data or []))
+        nums = []
+        bad = []
+        for part in raw.split(','):
+            p = part.strip()
+            if not p:
+                continue
+            try:
+                n = int(p)
+            except ValueError:
+                bad.append(p)
+                match = re.search(r'\d+', p)
+                if not match:
+                    continue
+                n = int(match.group())
+            if n != 0 and n not in nums:
+                nums.append(n)
+        return nums, bad
+
+    async def _async_update_info(self, locked_get):
+        """Fetch info/ in its own try/except, keeping last known Info on failure."""
+        logger.debug("Fetching info/...")
+        try:
+            data = await self.hass.async_add_executor_job(locked_get, 'info/')
+        except Exception as e:
+            logger.warning("Info update failed - keeping last known Info: %s", e)
+            return
+
+        nums, bad = self._parse_info_payload(data)
+        if bad:
+            # Raw payload logged with repr() so hidden characters are visible.
+            # Warning once per HA start, debug afterwards to avoid log spam.
+            log = logger.debug if self._info_parse_warned else logger.warning
+            log("Info payload contained unexpected elements %r (raw: %r) - parsed as %s",
+                bad, data, nums)
+            self._info_parse_warned = True
+
+        self.info_messages = nums
+        self.info_message = nums[0] if nums else 0
+        logger.debug(f"  ✓ Info messages: {self.info_messages} (raw: {data!r})")
+
     async def _async_update_data(self):
         """Fetch ALLE data fra fyret."""
 
@@ -1391,6 +1457,11 @@ class RTBDataCoordinator(DataUpdateCoordinator):
                 raise
             except Exception as e:
                 logger.debug(f"  ✗ Error fetching operating_data: {e}")
+
+            # Info as poll nr. 2: operating_data/ above acts as the connection
+            # check, and nothing later in the poll (settings, StokerCloud delta,
+            # midnight return) can prevent the info messages from updating.
+            await self._async_update_info(locked_get)
 
             logger.debug("Fetching advanced_data/...")
             try:
@@ -1620,30 +1691,6 @@ class RTBDataCoordinator(DataUpdateCoordinator):
                     self._helper2_dhw = helper1_dhw
                     await self._helper2_store.async_save({"helper2_pellets": self._helper2_pellets, "helper2_dhw": self._helper2_dhw})
 
-            logger.debug("Fetching info/...")
-            try:
-                data = await self.hass.async_add_executor_job(
-                    locked_get, 'info/'
-                )
-                
-                raw = ','.join(data or [])
-                parts = [p.strip() for p in raw.split(',') if p.strip()]
-                nums = []
-
-                for p in parts:
-                    n = int(p)
-                    if n != 0:
-                        nums.append(n)
-
-                self.info_messages = nums
-                self.info_message = nums[0] if nums else 0
-                logger.debug(f"  ✓ Info messages: {self.info_messages}")
-
-            except Exception as e:
-                logger.warning(
-                    "Info update failed - keeping last known Info: %s", e
-                )
-
             return all_data
 
         except PollReadError as e:
@@ -1658,4 +1705,4 @@ class RTBDataCoordinator(DataUpdateCoordinator):
 
         except Exception as e:
             logger.error(f"Error fetching data: {e}")
-            return None          
+            return None
