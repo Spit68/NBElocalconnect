@@ -82,7 +82,7 @@ Firmware 10.0974 is available as an SD card update package.
 **SD card update:**
 
 1. Back up your boiler settings before updating.
-2. Format a compatible SD card using FAT32.
+2. Format a compatible SD card using FAT.
 3. Extract the ZIP contents directly to the root of the SD card.
 4. Follow the controller's SD card firmware update procedure.
 5. After updating, verify that the controller reports firmware 10.0974.
