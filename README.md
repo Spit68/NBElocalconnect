@@ -95,7 +95,6 @@ Firmware 10.0974 was successfully installed and verified on a V10 controller. Lo
 
 **Important:** This is a community-prepared SD card package, not an original SD card ZIP released by NBE. Firmware updates carry a risk of controller failure. Compatibility with all V10 hardware revisions has not been verified. Proceed at your own risk.
 
-**NBElocalconnect works around this limitation** by tracking yearly consumption locally using delta logic and storing it in Home Assistant's statistics database — completely independent of the boiler's own yearly counter.
 
 ## Installation
 
@@ -236,6 +235,7 @@ cards:
 ```
 
 Due to a firmware bug in V7, V10 and V13 controllers, yearly consumption data stops being stored in the boiler after 2024. NBE has been contacted about this issue but has declined to fix it.
+**NBElocalconnect works around this limitation** by tracking yearly consumption locally using delta logic and storing it in Home Assistant's statistics database — completely independent of the boiler's own yearly counter.
 
 ### Consumption History for last 24 hours
 
