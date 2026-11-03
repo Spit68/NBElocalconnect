@@ -235,6 +235,7 @@ cards:
 ```
 
 Due to a firmware bug in V7, V10 and V13 controllers, yearly consumption data stops being stored in the boiler after 2024. NBE has been contacted about this issue but has declined to fix it.
+
 **NBElocalconnect works around this limitation** by tracking yearly consumption locally using delta logic and storing it in Home Assistant's statistics database — completely independent of the boiler's own yearly counter.
 
 ### Consumption History for last 24 hours
