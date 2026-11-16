@@ -22,6 +22,10 @@ SERIAL_NUMBER = ""
 IP_ADDRESS = ""
 PORT = 8483
 
+ALWAYS_SEND_PIN = True 
+USE_SERIAL_AS_ID = True
+RSA_OPTIONAL = True
+
 START = b"\x02"
 END = b"\x04"
 STATUS_CODES = (0, 1, 2, 3)
@@ -62,7 +66,7 @@ class Request_frame(object):
             h += ('%02u'%self.function).encode('ascii')
             h += ('%02d'%self.sequencenumber).encode('ascii')
 
-            if self.encrypted:
+            if self.encrypted or ALWAYS_SEND_PIN:
                 h += ('%10s'%self.pincode[:10]).encode('ascii')
             else:
                 h += '0000000000'.encode('ascii')
@@ -244,16 +248,23 @@ class Proxy:
 
         request.payload = 'misc.rsa_key'
         request.function = 1
-        request.sequencenumber += 1
-        self.s.sendto(request.encode() , self.addr)
-        data, server = self.s.recvfrom(4096)
-        self.response.decode(data)
+        request.sequencenumber = (request.sequencenumber % 99) + 1
+        request.public_key = None
         try:
+            self.s.sendto(request.encode(), self.addr)
+            data, server = self.s.recvfrom(4096)
+            self.response.decode(data)
             key = self.response.payload.split('rsa_key=')[1]
             key = base64.b64decode(key)
             request.public_key = RSA.importKey(key)
-        except (ValueError, IndexError, TypeError, IOError):
-            request.public_key = None
+            print("RSA key received")
+        except Exception as e:
+            if not RSA_OPTIONAL:
+                raise
+            print("RSA key not available, continuing without it:", e)
+
+        if USE_SERIAL_AS_ID and 'Serial' in res:
+            request.controllerid = res['Serial'].zfill(6)
         request.pincode = self.password
         self.request = request
 
@@ -389,6 +400,7 @@ def main():
 
     mode = "direct IP" if IP_ADDRESS else "broadcast discovery"
     log(f"START | mode={mode} | port={PORT}")
+    log(f"FLAGS | ALWAYS_SEND_PIN={ALWAYS_SEND_PIN} | USE_SERIAL_AS_ID={USE_SERIAL_AS_ID} | RSA_OPTIONAL={RSA_OPTIONAL}")
     if IP_ADDRESS:
         log(f"Target IP: {IP_ADDRESS}")
     else:
